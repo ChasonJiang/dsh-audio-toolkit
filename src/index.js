@@ -171,7 +171,7 @@ function buildConfig() {
       .volatile(),
     cliPath: Schema.string()
       .default('')
-      .description('audiocpp_cli 路径（仅 audio_status 查设备用）。留空 = <binDir>/audiocpp_cli.exe。')
+      .description('audiocpp_cli 路径（仅 audio_status 查设备用）。留空 = <binDir>/audiocpp_cli（Windows 为 .exe）。')
       .volatile(),
     ffmpegPath: Schema.string()
       .default('')

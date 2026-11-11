@@ -483,7 +483,7 @@ async function main() {
     // per-action logic rather than "is the release installed on this machine".
     const fakeBin = join(STATE_DIR, 'tmp', 'test-bin')
     mkdirSync(fakeBin, { recursive: true })
-    writeFileSync(join(fakeBin, 'audiocpp_server.exe'), 'stub')
+    writeFileSync(join(fakeBin, SERVER_BINARY), 'stub')
     const presentModel = join(STATE_DIR, 'tmp', 'present.gguf')
     writeFileSync(presentModel, 'gguf')
     const missingTts = resolveConfig({

@@ -233,7 +233,7 @@ window.__ModuleLoader__.load({
 					{ field: 'assetsAutoDownload', label: '自动下载资产', hint: '打开后引擎启动时自动补齐依赖（约 6 GB）；默认关闭，用上方「安装依赖」手动确认。', kind: 'boolean', fallback: false },
 					{ field: 'assetsProxy', label: '下载代理', hint: '留空 = 用 HTTPS_PROXY / HTTP_PROXY；国内直连 GitHub/HF 不通时填本地代理，例如 http://127.0.0.1:7890。', kind: 'text', placeholder: 'http://127.0.0.1:7890' },
 					{ field: 'binDir', label: 'audio.cpp 目录', hint: '留空 = <assetsDir>/bin/audio.cpp。', kind: 'text', placeholder: '自动' },
-					{ field: 'cliPath', label: 'audiocpp_cli 路径', hint: '仅状态检查用；留空 = <binDir>/audiocpp_cli.exe。', kind: 'text', placeholder: '自动' },
+					{ field: 'cliPath', label: 'audiocpp_cli 路径', hint: '仅状态检查用；留空 = <binDir>/audiocpp_cli（Windows 为 .exe）。', kind: 'text', placeholder: '自动' },
 					{ field: 'ffmpegPath', label: 'ffmpeg 路径', hint: '留空 = <assetsDir>/bin/ffmpeg/ffmpeg（Windows 为 ffmpeg.exe；找不到时回退 PATH）；也可填所在目录。用于音频转码。', kind: 'text', placeholder: '自动' },
 					{ field: 'modelsDir', label: '模型目录', hint: '留空 = <assetsDir>/bin/models。', kind: 'text', placeholder: '自动' },
 					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
