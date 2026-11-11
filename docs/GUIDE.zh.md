@@ -12,7 +12,7 @@ dsh-audio-toolkit 宿主插件（src/index.js）
    ├─ 托管常驻引擎 audiocpp_server（子进程）
    │    · 随 DSH 启动（engineAutoStart）
    │    · 插件卸载 / DSH 退出时自动停止（ctx.effect 兜底）
-   │    · 面板 engineEnabled / 启动引擎 / 停止引擎 手动启停
+   │    · 面板「启动引擎 / 停止引擎」按钮手动启停
    └─ 发布解析后的配置到 state/config.json
    ▼
 mcp/server.mjs（可选，给外部 MCP 客户端用）──HTTP──▶ audiocpp_server :8788
@@ -89,7 +89,7 @@ bin/
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `engineEnabled` | `true` | 引擎总开关：面板上的手动启停 |
+| `engineEnabled` | `true` | 引擎总开关；面板不再显示，由「启动引擎 / 停止引擎」按钮写入 |
 | `engineAutoStart` | `true` | DSH 启动/插件启用时自动拉起引擎 |
 | `engineHost` / `enginePort` | `127.0.0.1` / `8788` | 引擎监听地址与端口（被占用就改端口） |
 | `mcpServerName` | `audio` | 独立 MCP 服务的 `serverInfo.name`；原生工具名固定为 `audio_toolkit_*` |
@@ -382,7 +382,7 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
 - 按钮：**安装所缺依赖** / **取消安装** / **刷新状态**；进行中显示进度条、当前文件、百分比与速度对应的字节数；
 - 默认写入 `~/.dsh/audio-toolkit`。已有资产时把 `assetsDir` 指过去即可复用（`link:` 安装自动用仓库内 `bin/`）。
 
-面板不再显示这些由 assetsDir 派生的字段（仍可通过配置文件或 MCP 覆盖）：binDir、cliPath、modelsDir、ttsModel、asrModel、asrVadModel、ffmpegPath、assetsApiPort。
+面板不再显示这些字段（仍可通过配置文件或 MCP 覆盖）：binDir、cliPath、modelsDir、ttsModel、asrModel、asrVadModel、ffmpegPath、assetsApiPort；engineEnabled 也隐藏了，由面板上方的「启动引擎 / 停止引擎」按钮直接控制。
 
 依赖服务只绑 `127.0.0.1`（端口 `assetsApiPort`，默认 8789），写操作校验 Origin，只允许本机页面触发。
 面板关闭后不再轮询。也可以打开 `assetsAutoDownload`，让引擎启动时自动补齐（无人值守部署用）。

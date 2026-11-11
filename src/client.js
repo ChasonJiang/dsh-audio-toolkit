@@ -277,7 +277,6 @@ window.__ModuleLoader__.load({
 				key: 'sectionEngine',
 				hintKey: 'hintEngine',
 				fields: [
-					{ field: 'engineEnabled', label: '引擎启用（手动启停）', hint: '开 = 启动并保持运行；关 = 停止引擎。保存后立即生效。', kind: 'boolean', fallback: true },
 					{ field: 'engineAutoStart', label: '随 DSH 自动启动', hint: 'DSH 启动/插件启用时自动拉起引擎（懒加载，首次请求才占显存）。', kind: 'boolean', fallback: true },
 					{ field: 'engineHost', label: '监听地址', hint: '保持 127.0.0.1。', kind: 'text' },
 					{ field: 'enginePort', label: '端口', hint: '被占用时改这里并保存（引擎会自动重启）。', kind: 'number' },
@@ -351,8 +350,10 @@ window.__ModuleLoader__.load({
 					else specs.push(textSpec(entry.field))
 				}
 			}
-			// Not rendered as a row: the first-run gate writes it from the guide.
+			// Not rendered as rows: the gate writes setupChoice and the start/stop
+			// buttons write engineEnabled.
 			specs.push(textSpec('setupChoice'))
+			specs.push(booleanSpec('engineEnabled'))
 			return specs
 		}
 		//#endregion
@@ -372,6 +373,7 @@ window.__ModuleLoader__.load({
 					for (const entry of section.fields) projected[entry.field] = this.form.field(entry.field)
 				}
 				projected.setupChoice = this.form.field('setupChoice')
+				projected.engineEnabled = this.form.field('engineEnabled')
 				return projected
 			}
 
