@@ -364,7 +364,7 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
 其余配置项在安装完成后才出现（门控看的是资产状态，不是用户选没选）。
 
 - 引导页说明依赖是什么、要占多少空间，并给两个选择：**自动安装（推荐）** / **手动下载**；
-- **ffmpeg 是必需依赖**：自动安装在 Windows 会一并下载官方构建（约 110 MB）；Linux/macOS 请先用系统包管理器安装，否则安装会报错。
+- **ffmpeg 是必需依赖**：自动安装在 Windows（官方构建）与 macOS（osxexperts arm64/intel）会一并下载；Linux 请先用系统包管理器安装，否则安装会报错。
 - 选 **自动安装**：进入安装页，点卡片里的 **「安装所缺依赖」** 才真正开始下载（切换方式不会触发下载）；
   代理默认关闭，勾选「使用代理下载」后代理输入框才可填写；
 - 选 **手动下载**：页面按当前平台/后端给出**具体指引**——release 包名（如 `audio-vX-bin-ubuntu-x64-cpu.tar.gz`，CUDA 需同版本 cudart；Linux/macOS 解压后 `chmod +x audiocpp_server`）、三个模型的目录、ffmpeg 位置（Windows 放 `bin/ffmpeg/ffmpeg.exe`，其它平台用包管理器），另有 `assetsDir` 输入，

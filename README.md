@@ -31,7 +31,7 @@ per-user directory on first use.
 | DeepSeek Harness | Tested against DSH `0.2.2-rc.1` desktop (nightly channel) |
 | [audio.cpp release](https://github.com/0xShug0/audio.cpp/releases) | Installed by the panel (Apache-2.0) |
 | GGUF models | IndexTTS2.5 fp16 (≈4.5 GB), SenseVoice-Small q8 (≈254 MB), PulseVAD (≈81 KB) — same |
-| ffmpeg | **Required.** Installed by the panel on Windows (≈110 MB); elsewhere install it first (package manager / PATH) |
+| ffmpeg | **Required.** Installed by the panel on Windows (≈110 MB) and macOS (osxexperts arm64/intel builds); on Linux install it first (package manager / PATH) |
 | Disk + network | ≈6.1 GB once, only when you press **Install missing assets** (ffmpeg included) |
 
 The release, models and ffmpeg land in `~/.dsh/audio-toolkit` (`assetsDir` overrides it;
@@ -54,7 +54,7 @@ plugin_manager(action="install_bundle", target="link:<absolute path to this repo
 
 1. choose **Install automatically** (recommended) or **Download manually**;
 2. automatic: press **Install missing assets** on the card — live progress, cancel, target
-   platform/backend, optional proxy (off by default); the Windows build also installs ffmpeg, and
+   platform/backend, optional proxy (off by default); Windows and macOS also install ffmpeg, and
    the install fails if ffmpeg cannot be obtained (it is required for transcoding);
 3. manual: the guide shows the release archive that matches the current platform / arch /
    backend (e.g. `audio-vX-bin-ubuntu-x64-cpu.tar.gz`; `chmod +x audiocpp_server` on POSIX;
@@ -101,7 +101,7 @@ npm run test:smoke  # end-to-end, needs the release, models and a GPU
 npm run docs:contract  # regenerate the tool contract in docs/GUIDE.zh.md
 ```
 
-The suite currently covers config 74, client 33, http 15, api 9 and assets 34 checks; CI runs
+The suite currently covers config 74, client 33, http 15, api 9 and assets 37 checks; CI runs
 it on Linux and Windows with Node 22 and 24, without binaries, models or a GPU
 (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 

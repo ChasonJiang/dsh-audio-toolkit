@@ -19,6 +19,7 @@ import {
   availableTargets,
   defaultBackend,
   ensureAssets,
+  ffmpegSourceUrl,
   installFfmpeg,
   missingAssets,
   modelBases,
@@ -300,6 +301,27 @@ async function main() {
       'ffmpeg fixture installs on linux',
       linuxInstall.installed === true && existsSync(join(linuxDir, 'bin', 'ffmpeg', 'ffmpeg')),
       JSON.stringify(linuxInstall),
+    )
+
+    // macOS has its own static builds; the bundled URL follows the CPU arch.
+    check(
+      'ffmpeg sources follow platform and arch',
+      ffmpegSourceUrl('darwin', 'arm64').includes('arm') &&
+        ffmpegSourceUrl('darwin', 'x64').includes('intel') &&
+        ffmpegSourceUrl('linux') === '' &&
+        ffmpegSourceUrl('win32').includes('gyan'),
+      ffmpegSourceUrl('darwin', 'arm64'),
+    )
+    const macDir = join(SCRATCH, 'ffmpeg-macos')
+    const macCfg = resolveConfig({
+      assetsDir: macDir,
+      ffmpegPath: join(macDir, 'bin', 'ffmpeg', 'ffmpeg'),
+    })
+    const macInstall = await installFfmpeg(macCfg, { ffmpegUrl: `${base}/ffmpeg.zip`, platform: 'darwin' })
+    check(
+      'ffmpeg fixture installs on macos',
+      macInstall.installed === true && existsSync(join(macDir, 'bin', 'ffmpeg', 'ffmpeg')),
+      JSON.stringify(macInstall),
     )
 
     const second = await ensureAssets(freshConfig(assetsDir), { platform: process.platform, backend, inProcess: true })

@@ -1119,11 +1119,17 @@ window.__ModuleLoader__.load({
 								['models', '三个模型放到 <root>/bin/models/{IndexTTS2.5-GGUF,SenseVoice-Small-GGUF,PulseVAD-GGUF}。'],
 								['ffmpeg', `ffmpeg 放到 <root>/bin/ffmpeg/${ffmpegName}（或 PATH 上）。`],
 							]
-						: [
-								['release', `下载 ${releaseExample}（CUDA 选 cuda 还需同版本 cudart 包），解压到 <root>/bin/audio.cpp，并 chmod +x ${serverName}。`],
-								['models', '三个模型放到 <root>/bin/models/{IndexTTS2.5-GGUF,SenseVoice-Small-GGUF,PulseVAD-GGUF}。'],
-								['ffmpeg', `用系统包管理器安装 ffmpeg（或放到 <root>/bin/ffmpeg/${ffmpegName}）。`],
-							]
+						: osToken === 'macos'
+							? [
+									['release', `下载 ${releaseExample}（release 目前只提供 arm64 的 metal 构建），解压到 <root>/bin/audio.cpp，并 chmod +x ${serverName}。`],
+									['models', '三个模型放到 <root>/bin/models/{IndexTTS2.5-GGUF,SenseVoice-Small-GGUF,PulseVAD-GGUF}。'],
+									['ffmpeg', `自动安装会下载 osxexperts 的 ffmpeg（按 arm64/intel 选择）；手动时用 brew install ffmpeg，或放到 <root>/bin/ffmpeg/${ffmpegName}。`],
+								]
+							: [
+									['release', `下载 ${releaseExample}（CUDA 选 cuda 还需同版本 cudart 包），解压到 <root>/bin/audio.cpp，并 chmod +x ${serverName}。`],
+									['models', '三个模型放到 <root>/bin/models/{IndexTTS2.5-GGUF,SenseVoice-Small-GGUF,PulseVAD-GGUF}。'],
+									['ffmpeg', `用系统包管理器安装 ffmpeg（或放到 <root>/bin/ffmpeg/${ffmpegName}）。`],
+								]
 
 				let body
 				if (setupChoice === 'auto') {

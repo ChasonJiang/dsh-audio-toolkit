@@ -8,7 +8,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
@@ -310,6 +310,17 @@ async function installRelease(config, options) {
 /** Windows ffmpeg build used when the machine has none (≈110 MB). */
 export const FFMPEG_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
 
+/** macOS static builds (bare `ffmpeg` inside the zip). Linux: use the package manager. */
+export const FFMPEG_MACOS_ARM64 = 'https://www.osxexperts.net/ffmpeg80arm.zip'
+export const FFMPEG_MACOS_X64 = 'https://www.osxexperts.net/ffmpeg80intel.zip'
+
+/** Bundled download for a platform, or '' when the platform has none. */
+export function ffmpegSourceUrl(platform = process.platform, arch = process.arch) {
+  if (platform === 'win32') return FFMPEG_URL
+  if (platform === 'darwin') return arch === 'arm64' ? FFMPEG_MACOS_ARM64 : FFMPEG_MACOS_X64
+  return ''
+}
+
 /**
  * Download ffmpeg into the asset root when it is missing.
  *
@@ -320,19 +331,19 @@ export const FFMPEG_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-ess
 export async function installFfmpeg(config, options = {}) {
   const { log = () => {} } = options
   const platform = options.platform ?? process.platform
-  // The bundled URL is a Windows build; a caller-supplied URL (tests, mirrors)
-  // may target any platform.
-  if (platform !== 'win32' && !options.ffmpegUrl) return { installed: false, reason: 'platform' }
+  const url = options.ffmpegUrl ?? ffmpegSourceUrl(platform, options.arch ?? process.arch)
+  if (!url) return { installed: false, reason: 'unsupported' }
   const dest = dirname(config.audioCpp.ffmpegPath)
   const target = join(dest, platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
   if (isFile(target)) return { installed: false, reason: 'exists' }
-  const buffer = await downloadBuffer(options.ffmpegUrl ?? FFMPEG_URL, { ...options, label: 'ffmpeg', phase: 'ffmpeg' })
+  const buffer = await downloadBuffer(url, { ...options, label: 'ffmpeg', phase: 'ffmpeg' })
   const written = extractZip(buffer, dest, { filter: (name) => /(^|\/)ffmpeg(\.exe)?$/i.test(name), flatten: true })
   if (!isFile(target)) {
     const found = written.find((path) => isFile(path))
     if (found) renameSync(found, target)
   }
   if (!isFile(target)) throw new Error('ffmpeg 下载后没有找到可执行文件')
+  if (platform !== 'win32') chmodSync(target, 0o755)
   log(`[assets] ffmpeg 已安装到 ${dest}`)
   return { installed: true }
 }
@@ -342,14 +353,14 @@ async function ensureFfmpeg(config, options = {}) {
   const { log = () => {} } = options
   if (resolveFfmpeg(config)) return
   if (!config.assets.derived) return
-  // The bundled URL is a Windows build; a caller-supplied URL (tests/mirrors)
-  // works on any platform, so only the default download path is Windows-only.
-  if ((options.platform ?? process.platform) !== 'win32' && !options.ffmpegUrl) {
-    throw new Error('缺少 ffmpeg：请先用系统包管理器安装（Windows 会自动下载），或设置 ffmpegPath')
-  }
+  const platform = options.platform ?? process.platform
+  const url = options.ffmpegUrl ?? ffmpegSourceUrl(platform, options.arch ?? process.arch)
   // ffmpeg is required for transcoding: fail the install instead of leaving a
-  // half-working deployment.
-  await installFfmpeg(config, options)
+  // half-working deployment. Linux has no bundled build.
+  if (!url) {
+    throw new Error('缺少 ffmpeg：请先用系统包管理器安装（Linux 不提供内置构建），或设置 ffmpegPath')
+  }
+  await installFfmpeg(config, { ...options, ffmpegUrl: url })
 }
 
 /** Install the three GGUF files. */

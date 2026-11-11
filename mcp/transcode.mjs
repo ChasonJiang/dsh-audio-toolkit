@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { EngineError } from './engine.mjs'
 import { runCli } from './audiocpp.mjs'
-import { findOnPath } from '../src/config.js'
+import { ffmpegFallbackPath, findOnPath } from '../src/config.js'
 import { readWavFormat, WavError } from '../src/wav.js'
 
 /** Target layout every consumer (engine + sentence timeline) accepts. */
@@ -66,7 +66,7 @@ export function resolveFfmpeg(cfg) {
       return configured
     }
   }
-  return findOnPath('ffmpeg')
+  return findOnPath('ffmpeg') ?? ffmpegFallbackPath()
 }
 
 /**

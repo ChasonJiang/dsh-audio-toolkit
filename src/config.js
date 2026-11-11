@@ -276,6 +276,28 @@ export function findOnPath(name) {
   return undefined
 }
 
+/**
+ * Well-known ffmpeg locations outside PATH.
+ *
+ * GUI launches on macOS often inherit a minimal PATH that misses Homebrew, so
+ * check the usual prefixes explicitly before giving up.
+ */
+const FFMPEG_FALLBACK_DIRS =
+  process.platform === 'darwin'
+    ? ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']
+    : process.platform === 'linux'
+      ? ['/usr/bin', '/usr/local/bin', '/home/linuxbrew/.linuxbrew/bin']
+      : []
+
+/** Look for ffmpeg in the platform's common install prefixes. */
+export function ffmpegFallbackPath() {
+  for (const directory of FFMPEG_FALLBACK_DIRS) {
+    const candidate = join(directory, 'ffmpeg')
+    if (existsSync(candidate)) return candidate
+  }
+  return undefined
+}
+
 /** Report whether a path is an existing file. */
 export function isFile(path) {
   if (!path) return false
@@ -576,7 +598,7 @@ export function inspectInstall(config) {
       key: 'ffmpeg',
       label: 'ffmpeg（音频转码）',
       path: config.audioCpp.ffmpegPath,
-      ok: isFile(config.audioCpp.ffmpegPath) || Boolean(findOnPath('ffmpeg')),
+      ok: isFile(config.audioCpp.ffmpegPath) || Boolean(findOnPath('ffmpeg')) || Boolean(ffmpegFallbackPath()),
     },
   ]
   if (config.tts.defaultVoiceRef) {
