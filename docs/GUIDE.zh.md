@@ -5,7 +5,7 @@
 
 ```
 DSH 侧栏「插件」→ 点开 dsh-audio-toolkit 卡片 → 配置区
-   │  33 个可编辑字段，保存即生效（volatile）
+   │  36 个可编辑字段，保存即生效（volatile）
    ▼
 dsh-audio-toolkit 宿主插件（src/index.js）
    ├─ 注册 7 个原生工具 audio_toolkit_*
@@ -27,7 +27,7 @@ mcp/server.mjs（可选，给外部 MCP 客户端用）──HTTP──▶ audio
 
 | 目录 / 文件 | 作用 |
 |---|---|
-| `src/index.js` | 宿主插件：33 个扁平 `Config` 字段、引擎启停、状态发布 |
+| `src/index.js` | 宿主插件：36 个扁平 `Config` 字段、引擎启停、状态发布 |
 | `src/client.js` | 浏览器半边：在**插件页**注册配置区（`plugins.bundle.config`，key=包名）并渲染表单（手写 `__ModuleLoader__` bundle，无需构建） |
 | `src/host-tools.js` | 原生工具定义：`audio_toolkit_tts_speak` 等 7 个，复用 `mcp/tools.mjs` 的 handler |
 | `src/engine.js` | 常驻引擎管理器：启动、健康等待、端口释放、停止、重启、配置变更判定（启动时读取面板的最新配置） |
@@ -74,7 +74,7 @@ bin/
 3. 详情页里会出现 **配置区**（`data-plugin-config` 那一段）：
    - 顶部 **状态条**：引擎启停状态、端口、是否有未保存修改；
    - **启动引擎 / 停止引擎** 按钮（等价于把 `engineEnabled` 改成 true/false 再保存，当前状态下自动置灰）；
-   - 六张 **分组卡片**（引擎 / MCP / audio.cpp / TTS / ASR / 输出），共 33 个字段；
+   - 六张 **分组卡片**（引擎 / MCP / audio.cpp / TTS / ASR / 输出），共 36 个字段；
    - 控件按类型选：**开关**（布尔）、**分段控件**（后端、语言、分块方式）、**数字输入 + 单位标签**（超时、端口、线程数、分块秒数）、**输入框**（路径/文本）、**输入框 + 分词标签**（extraArgs / session options）；
    - 每个字段显示中文名、真实配置键（等宽小字）与说明；被覆盖过的字段出现 **已覆盖** 标签和 **恢复默认** 按钮，非法输入就地提示。
 4. 改完点 **保存**：配置写入 profile patch → 引擎按需重启/启停 → 工具下次调用即用新值。**不需要重启 DSH**。
@@ -95,8 +95,11 @@ bin/
 | `mcpServerName` | `audio` | 独立 MCP 服务的 `serverInfo.name`；原生工具名固定为 `audio_toolkit_*` |
 | `toolCallTimeoutMs` | `900000` | 单次引擎请求的超时（覆盖响应体读取） |
 | `maxConcurrentCalls` | `2` | 并发上限：异步任务队列 + 原生 TTS/ASR 工具都受它约束 |
-| `binDir` / `cliPath` / `modelsDir` | 自动 | audio.cpp 目录与可执行文件 |
-| `ffmpegPath` | `<仓库>/bin/ffmpeg/ffmpeg`（Windows 为 `ffmpeg.exe`） | 转码用的 ffmpeg：可填可执行文件或所在目录；找不到时回退到 PATH 上的 `ffmpeg` |
+| `assetsDir` | 自动 | 运行时资产根。留空 = 自动发现：包内 `bin/`（`link:`/开发）→ `DSH_AUDIO_TOOLKIT_ASSETS` → `~/.dsh/audio-toolkit`（`github:`/npm 安装的下载目标） |
+| `assetsAutoDownload` | `false` | 打开后引擎启动时自动补齐依赖；默认关闭，由面板「运行时依赖 → 安装依赖」手动确认（约 6 GB） |
+| `assetsApiPort` | `8789` | 面板「运行时依赖」用的本地服务端口（只绑 127.0.0.1，被占用时自动顺延） |
+| `binDir` / `cliPath` / `modelsDir` | 自动 | 分别默认 `<assetsDir>/bin/audio.cpp`、`<binDir>/audiocpp_cli.exe`、`<assetsDir>/bin/models` |
+| `ffmpegPath` | 自动 | 默认 `<assetsDir>/bin/ffmpeg/ffmpeg`（Windows 为 `ffmpeg.exe`）；也可填所在目录；找不到时回退 PATH |
 | `backend` / `device` / `threads` | `cuda` / `0` / `0` | 后端与设备（改动会重启引擎；VAD 也跟随 device/threads） |
 | `extraArgs` | 空 | 追加给 `audiocpp_server` 的启动参数（空格分隔，最后一个生效） |
 | `ttsFamily` / `ttsModel` | `index_tts2` / **fp16 GGUF** | TTS 模型 |
@@ -347,9 +350,32 @@ SenseVoice 本身**不产出**句子/词边界（CTC 模型，输出整段文本
 
 ## 四、安装 / 生效 / 卸载
 
+三种来源，插件行为一致：
+
 ```text
-plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-toolkit")
+plugin_manager(action="install_bundle", target="github:<owner>/dsh-audio-toolkit")   # 从 Git 安装
+plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.0")            # 从 npm 安装
+plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-toolkit")  # 本地开发
 ```
+
+**首次使用由你确认后再安装**：`github:` / npm 安装只有代码。打开插件面板，最上方是
+**「运行时依赖」** 卡片：
+
+- 状态：`✓ 已就绪` 或 `缺少：audio.cpp 运行时 / TTS 模型 / …`，并显示已占磁盘大小；
+- 选项：勾选 **audio.cpp 运行时**、**GGUF 模型**，按需安装（也可填 `assetsProxy` 走代理）；
+- 目标：**平台 / 后端** 下拉框。默认 = 本机平台 + 面板里的 `backend`（Windows→cuda、macOS→metal、
+  Ubuntu→cpu），可选 cuda / cpu / vulkan / rocm / metal。安装时从 release 里挑对应构建
+  （Windows 为 `.zip`，Linux/macOS 为 `.tar.gz`；CUDA 还顺带装匹配版本的 `cudart`）。
+  跨平台选择会被拒绝——本机跑不了别的平台二进制；
+- 按钮：**安装所缺依赖** / **取消安装** / **刷新状态**；进行中显示进度条、当前文件、百分比与速度对应的字节数；
+- 默认写入 `~/.dsh/audio-toolkit`。已有资产时把 `assetsDir` 指过去即可复用（`link:` 安装自动用仓库内 `bin/`）。
+
+依赖服务只绑 `127.0.0.1`（端口 `assetsApiPort`，默认 8789），写操作校验 Origin，只允许本机页面触发。
+面板关闭后不再轮询。也可以打开 `assetsAutoDownload`，让引擎启动时自动补齐（无人值守部署用）。
+
+国内网络：Hugging Face 常被墙，插件会自动回退到 `hf-mirror.com`；也可显式设置
+`HF_ENDPOINT=https://hf-mirror.com`（或你的镜像）。自动安装会按面板选择的平台/后端取 release 构建；
+给别的机器准备资产时请手动放置到 `assetsDir`。
 
 改完 `src/` 或 `cordis.patch.yml` 后重载（会连带重启引擎）：
 
@@ -370,9 +396,10 @@ plugin_manager(action="remove_bundle", target="dsh-audio-toolkit")
 
 ```powershell
 # 在仓库根目录执行；node 需 >= 22.19
-node .\test\config.mjs    # 配置/表单契约/原生工具/队列/WAV 流式解码/静音回退（73 项）
-node .\test\client.mjs    # 浏览器半边无头渲染与暂存值契约（25 项）
+node .\test\config.mjs    # 配置/表单契约/原生工具/队列/WAV 流式解码/静音回退（74 项）
+node .\test\client.mjs    # 浏览器半边无头渲染与暂存值契约（26 项）
 node .\test\http.mjs      # 超时/取消/分块透传（受限沙箱 14 项，含 MCP 端到端共 20 项）
+node .\test\assets.mjs    # 资产发现/下载/解压/续传/镜像回退（23 项，本地 HTTP，无需联网）
 node .\test\smoke.mjs --extended  # 独立 MCP 服务端到端，需 danger-full-access
 node .\scripts\tool_contract.mjs --check  # 校验 README 的工具契约与代码一致
 python .\scripts\check_scripts.py        # Python 辅助脚本自检（本地 HTTP，无需联网）
@@ -397,12 +424,13 @@ node .\scripts\tool_contract.mjs --write   # 或 npm run docs:contract
 | 现象 | 处理 |
 |---|---|
 | 插件面板详情页没有配置区 | 先确认 `state/host.log` 里有 `配置：...` 和 `已注册工具：...`；再确认 bundle 已启用、`package.json` 的 `dsh.client.platform = "web"` 且 `exports["./client"]` 指向 `src/client.js`。改过 client 要重载插件并**刷新页面**（浏览器需重新拉 client bundle） |
-| 配置区在但字段为空 | 宿主没提供该命名空间：命名空间 = Loader 条目 id `audio-toolkit`，`settings.describe()` 必须返回它（`test/config.mjs` 校验过 33 个扁平字段） |
+| 配置区在但字段为空 | 宿主没提供该命名空间：命名空间 = Loader 条目 id `audio-toolkit`，`settings.describe()` 必须返回它（`test/config.mjs` 校验过 36 个扁平字段） |
 | 工具没出现 | `state/host.log` 里找 `已注册工具` 或 `注册 audio_toolkit_* 工具失败`；该插件必须 `inject: ['tools']`，否则 Cordis 会拒绝读取 `ctx.tools` |
 | 工具报"引擎未运行" | 面板里点 **启动引擎**（或把 `engineEnabled` 设 true 保存）；看 `state/engine.log` |
 | 端口被占用 | 面板改 `enginePort` 保存，引擎会自动重启到新端口 |
 | `audiocpp_server.exe` 立刻退出 | 缺 CUDA 13 运行时 DLL：`python scripts/fetch_cuda_runtime.py` |
-| ASR 报 `PulseVAD requires 16000 Hz mono audio` | `auto/vad` 分块要求 16k 单声道；把 `asrChunkMode` 改回 `fixed` |
+| 从 npm / github 安装后引擎起不来 | 面板「运行时依赖」应该显示「缺少」：点 **安装所缺依赖**。安装失败看 `state/host.log` 的 `[assets]` 行（网络→填 `assetsProxy` 或设 `HF_ENDPOINT`；磁盘要留约 6 GB）。已有资产就把 `assetsDir` 指向它 |
+| 从 `link:` 换成 npm / github 安装时报 `ERR_PNPM_EPERM ... rename` | 卸载后 `node_modules` 里仍留着 `link:` 的 junction，Windows 不能 rename 覆盖它；删掉 `<profile>/node_modules/dsh-audio-toolkit` 再装（`rmdir` 该链接即可，不要删目标目录） |
 | TTS 报"需要参考音色" | 传 `voice_path`，或面板设「默认参考音色」，或把 wav 放进 `voices/` |
 | 想换回 q8 权重 | 面板把 `ttsModel` 改成 `.../index-tts2_5-q8_0.gguf` 并保存 |
 
@@ -416,7 +444,7 @@ node .\scripts\tool_contract.mjs --write   # 或 npm run docs:contract
 
 ## 八、目录约定
 
-- 引擎与模型：`./bin`（不随插件包分发）；
+- 引擎与模型：`<assetsDir>/bin` —— 默认 `link:` 安装用仓库内 `bin/`，`github:`/npm 安装用 `~/.dsh/audio-toolkit/bin`（不随包分发，首次使用时自动下载）；
 - 开发期音频素材：`./audio_samples`（仅测试）；
 - 产物：`<当前会话工作目录>/audio_toolkit_outputs/` —— TTS 的 `*.wav`、ASR 的 `asr-*.txt` 与句级模式的 `*.segments.json`（文件夹名由面板 `outputFolder` 决定）；
 - 参考音色：`./voices`（可选）；

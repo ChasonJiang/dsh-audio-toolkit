@@ -1,6 +1,6 @@
 {
   "name": "dsh-audio-toolkit",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": "dsh-audio-toolkit contributors",
   "repository": {
     "type": "git",
@@ -15,7 +15,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "node scripts/check_syntax.mjs && node test/config.mjs && node test/client.mjs && node test/http.mjs && node scripts/tool_contract.mjs --check",
+    "test": "node scripts/check_syntax.mjs && node test/config.mjs && node test/client.mjs && node test/http.mjs && node test/assets.mjs && node scripts/tool_contract.mjs --check",
     "test:smoke": "node test/smoke.mjs",
     "docs:contract": "node scripts/tool_contract.mjs --write",
     "check:syntax": "node scripts/check_syntax.mjs"

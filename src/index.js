@@ -27,6 +27,7 @@ import {
   summarize,
   writeStateConfig,
 } from './config.js'
+import { createAssetsApi } from './assets-api.js'
 import { AudioEngine, engineSettingsChanged } from './engine.js'
 import { registerHostTools } from './host-tools.js'
 import { JobQueue } from '../mcp/jobs.mjs'
@@ -146,21 +147,39 @@ function buildConfig() {
     engineHost: Schema.string().default('127.0.0.1').description('引擎监听地址，保持 127.0.0.1 即可。').volatile(),
     enginePort: Schema.natural().min(1).max(65535).default(8788).description('引擎端口；被占用时改这里。').volatile(),
 
+    assetsDir: Schema.string()
+      .default('')
+      .description('运行时资产根目录（bin/audio.cpp + bin/models）。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → 用户目录 ~/.dsh/audio-toolkit。')
+      .volatile(),
+    assetsAutoDownload: Schema.boolean()
+      .default(false)
+      .description('资产缺失时是否允许引擎自动下载（约 6 GB）。默认关闭：由面板「安装依赖」手动确认，适合无人值守部署时打开。')
+      .volatile(),
+    assetsProxy: Schema.string()
+      .default('')
+      .description('下载资产用的 HTTP(S) 代理（例如 http://127.0.0.1:7890）。留空 = 用环境变量 HTTPS_PROXY / HTTP_PROXY。')
+      .volatile(),
+    assetsApiPort: Schema.natural()
+      .min(1024)
+      .max(65535)
+      .default(8789)
+      .description('面板里「运行时依赖」用的本地服务端口（只绑 127.0.0.1，自动让开被占用的端口）。')
+      .volatile(),
     binDir: Schema.string()
-      .default(DEFAULT_CONFIG.binDir)
-      .description('audio.cpp 可执行文件目录。留空 = <仓库>/bin/audio.cpp。')
+      .default('')
+      .description('audio.cpp 可执行文件目录。留空 = <assetsDir>/bin/audio.cpp。')
       .volatile(),
     cliPath: Schema.string()
       .default('')
       .description('audiocpp_cli 路径（仅 audio_status 查设备用）。留空 = <binDir>/audiocpp_cli.exe。')
       .volatile(),
     ffmpegPath: Schema.string()
-      .default(DEFAULT_CONFIG.ffmpegPath)
+      .default('')
       .description(
-        'ffmpeg 可执行文件或所在目录。留空 = <仓库>/bin/ffmpeg/ffmpeg.exe；找不到时回退到 PATH。用来把任意音频转成 16 kHz 单声道 WAV。',
+        'ffmpeg 可执行文件或所在目录。留空 = <assetsDir>/bin/ffmpeg；找不到时回退到 PATH。用来把任意音频转成 16 kHz 单声道 WAV。',
       )
       .volatile(),
-    modelsDir: Schema.string().default(DEFAULT_CONFIG.modelsDir).description('模型根目录。').volatile(),
+    modelsDir: Schema.string().default('').description('模型根目录。留空 = <assetsDir>/bin/models。').volatile(),
     backend: Schema.union(['cuda', 'cpu', 'vulkan'])
       .default('cuda')
       .description('推理后端：cuda / cpu / vulkan（改后引擎自动重启）。')
@@ -174,14 +193,14 @@ function buildConfig() {
 
     ttsFamily: Schema.string().default('index_tts2').description('TTS 模型家族（--family）。').volatile(),
     ttsModel: Schema.string()
-      .default(DEFAULT_CONFIG.ttsModel)
+      .default('')
       .description('TTS 模型路径。留空 = <modelsDir>/IndexTTS2.5-GGUF/index-tts2_5-f16.gguf。')
       .volatile(),
     ttsDefaultVoiceRef: Schema.string()
       .default('')
       .description('默认参考音色 wav。IndexTTS2.5 必须给参考音色；留空时调用工具需传 voice_path。')
       .volatile(),
-    ttsVoiceDir: Schema.string().default(DEFAULT_CONFIG.ttsVoiceDir).description('参考音色目录。').volatile(),
+    ttsVoiceDir: Schema.string().default('').description('参考音色目录。留空 = <assetsDir>/voices。').volatile(),
     ttsLanguage: Schema.union(['auto', 'zh', 'en', 'ja', 'es', 'ar'])
       .default('auto')
       .description('默认语言提示。')
@@ -194,11 +213,11 @@ function buildConfig() {
 
     asrFamily: Schema.string().default('sense_asr').description('ASR 模型家族（--family）。').volatile(),
     asrModel: Schema.string()
-      .default(DEFAULT_CONFIG.asrModel)
+      .default('')
       .description('ASR 模型路径。留空 = <modelsDir>/SenseVoice-Small-GGUF/sensevoice-small-q8-audiocpp-v1.gguf。')
       .volatile(),
     asrVadModel: Schema.string()
-      .default(DEFAULT_CONFIG.asrVadModel)
+      .default('')
       .description('VAD 模型路径（auto/vad 分块用）。留空 = <modelsDir>/PulseVAD-GGUF/pulsevad-2.1k-f32.gguf。')
       .volatile(),
     asrChunkMode: Schema.union(['auto', 'fixed', 'vad', 'none'])
@@ -247,6 +266,10 @@ const CONFIG_KEYS = [
   'engineAutoStart',
   'engineHost',
   'enginePort',
+  'assetsDir',
+  'assetsAutoDownload',
+  'assetsProxy',
+  'assetsApiPort',
   'binDir',
   'cliPath',
   'ffmpegPath',
@@ -357,6 +380,18 @@ export function apply(ctx, config) {
     // a volatile panel edit must reach start()/restart() without a plugin reload.
     const engineConfig = () => resolveConfig(snapshotRaw(config))
     const engine = new AudioEngine({ getConfig: engineConfig, log })
+
+    // The panel reads asset status and starts installs through this loopback
+    // server (the form has no RPC channel of its own).
+    const assetsApi = createAssetsApi({ getConfig: engineConfig, log })
+    assetsApi
+      .start(resolved.assets.apiPort)
+      .catch((error) => hostLogWarn(`[dsh-audio-toolkit] 依赖服务启动失败：${error instanceof Error ? error.message : String(error)}`))
+    try {
+      ctx.effect(() => () => assetsApi.close().catch(() => {}), 'audio-toolkit: assets api')
+    } catch {
+      ctx.effect(() => () => assetsApi.close().catch(() => {}))
+    }
 
     // Re-resolve on every call so a panel edit applies without a remount, and
     // resolve the output folder against the *session's* working directory.

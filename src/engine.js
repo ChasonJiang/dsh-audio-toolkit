@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { request } from 'node:http'
 import { dirname } from 'node:path'
+import { ensureAssets } from '../mcp/assets.mjs'
 import { writeEngineConfig } from './config.js'
 
 /** How long to wait for `/health` before calling a start failed. */
@@ -46,6 +47,7 @@ function rotateLog(path) {
 /** Keys whose change requires restarting the engine. */
 const RESTART_KEYS = [
   'engineHost',
+  'assetsDir',
   'enginePort',
   'backend',
   'device',
@@ -168,6 +170,20 @@ export class AudioEngine {
       this.lastError = `端口 ${config.engine.port} 在 6s 内没有释放`
       this.log(this.lastError)
       return { started: false, reused: false, error: this.lastError }
+    }
+
+    // A git/npm install ships no binaries or models; provision them into the
+    // resolved asset root on first start unless the user turned that off or
+    // pointed binDir/modelsDir somewhere explicit (then the exact path in the
+    // error below is more useful than a download attempt).
+    if (config.assets.derived) {
+      try {
+        await ensureAssets(config, { log: (message) => this.log(message), backend: config.audioCpp.backend })
+      } catch (error) {
+        this.lastError = error instanceof Error ? error.message : String(error)
+        this.log(this.lastError)
+        return { started: false, reused: false, error: this.lastError }
+      }
     }
 
     const exePath = config.engine.exePath

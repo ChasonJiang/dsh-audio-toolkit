@@ -19,6 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   DEFAULT_CONFIG,
   FFMPEG_BINARY,
+  SERVER_BINARY,
   STATE_CONFIG_PATH,
   STATE_DIR,
   STATE_ENGINE_CONFIG_PATH,
@@ -75,7 +76,7 @@ async function main() {
     defaults.asr.model,
   )
   check('default engine url', defaults.engine.url === 'http://127.0.0.1:8788', defaults.engine.url)
-  check('default engine server exe', defaults.engine.exePath.endsWith(join('audio.cpp', 'audiocpp_server.exe')), defaults.engine.exePath)
+  check('default engine server exe', defaults.engine.exePath.endsWith(join('audio.cpp', SERVER_BINARY)), defaults.engine.exePath)
   // CI runs without the multi-gigabyte release/models. Asset-dependent checks are
   // reported as SKIP there instead of failing, so a fresh clone stays green.
   const hasAssets =
@@ -129,7 +130,7 @@ async function main() {
       resolveConfig({ outputFolder: 'lpt1.d' }).output.folder === '_lpt1.d',
     `${resolveConfig({ outputFolder: 'con' }).output.folder} / ${resolveConfig({ outputFolder: 'clips. ' }).output.folder}`,
   )
-  check('blank path means default', resolveConfig({ ttsModel: '' }).tts.model === DEFAULT_CONFIG.ttsModel)
+  check('blank path means auto', resolveConfig({ ttsModel: '' }).tts.model === resolveConfig({}).tts.model)
   check(
     'default ffmpeg lives under bin/ffmpeg',
     defaults.audioCpp.ffmpegPath.endsWith(join('bin', 'ffmpeg', FFMPEG_BINARY)),
@@ -216,7 +217,7 @@ async function main() {
         const flat = paths.filter((path) => !path.includes('.'))
         check(
           'panel form exposes flat fields',
-          form !== undefined && flat.length === 33,
+          form !== undefined && flat.length === 36,
           `${flat.length} top-level fields`,
         )
         check('panel form keeps them multi-segment free', paths.length === flat.length, paths.filter((p) => p.includes('.')).slice(0, 3).join(', '))

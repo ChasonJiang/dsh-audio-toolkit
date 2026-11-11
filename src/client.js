@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
 		var exports = module.exports
 		Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
+		const React = require('react')
 		const { jsx, jsxs } = require('react/jsx-runtime')
 		const prim = require('@deepseek-ai/dsh-client-ui-primitives')
 
@@ -59,6 +60,24 @@ window.__ModuleLoader__.load({
 			hintTts: 'IndexTTS2.5 fp16 模型与音色',
 			hintAsr: 'SenseVoice 模型与分块策略',
 			hintOutput: '合成产物落在哪里',
+			assetsTitle: '运行时依赖',
+			assetsHint: 'audio.cpp、模型与 CUDA 运行时。从 Git / npm 安装时不在包内，需要时在这里安装。',
+			assetsReady: '已就绪',
+			assetsMissing: '缺少',
+			assetsInstall: '安装依赖',
+			assetsInstallAll: '安装所缺依赖',
+			assetsCancel: '取消安装',
+			assetsRefresh: '刷新状态',
+			assetsInstalling: '正在安装',
+			assetsDone: '安装完成',
+			assetsFailed: '安装失败',
+			assetsRelease: 'audio.cpp 运行时',
+			assetsModels: 'GGUF 模型',
+			assetsRoot: '资产目录',
+			assetsPortDown: '依赖服务未就绪（插件刚重载时稍等再刷新）',
+			assetsUnavailable: '当前平台不支持自动安装（仅 Windows/CUDA）',
+			assetsOptions: '安装内容',
+			assetsTarget: '目标平台 / 后端',
 		}
 
 		const en = {
@@ -210,10 +229,13 @@ window.__ModuleLoader__.load({
 				key: 'sectionAudioCpp',
 				hintKey: 'hintAudioCpp',
 				fields: [
-					{ field: 'binDir', label: 'audio.cpp 目录', hint: '留空 = <仓库>/bin/audio.cpp。', kind: 'text', placeholder: '自动' },
+					{ field: 'assetsDir', label: '资产根目录', hint: '存放 bin/audio.cpp 与 bin/models。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → ~/.dsh/audio-toolkit。', kind: 'text', placeholder: '自动' },
+					{ field: 'assetsAutoDownload', label: '自动下载资产', hint: '打开后引擎启动时自动补齐依赖（约 6 GB）；默认关闭，用上方「安装依赖」手动确认。', kind: 'boolean', fallback: false },
+					{ field: 'assetsProxy', label: '下载代理', hint: '留空 = 用 HTTPS_PROXY / HTTP_PROXY；国内直连 GitHub/HF 不通时填本地代理，例如 http://127.0.0.1:7890。', kind: 'text', placeholder: 'http://127.0.0.1:7890' },
+					{ field: 'binDir', label: 'audio.cpp 目录', hint: '留空 = <assetsDir>/bin/audio.cpp。', kind: 'text', placeholder: '自动' },
 					{ field: 'cliPath', label: 'audiocpp_cli 路径', hint: '仅状态检查用；留空 = <binDir>/audiocpp_cli.exe。', kind: 'text', placeholder: '自动' },
-					{ field: 'ffmpegPath', label: 'ffmpeg 路径', hint: '留空 = <仓库>/bin/ffmpeg/ffmpeg（Windows 为 ffmpeg.exe；找不到时回退 PATH）；也可填所在目录。用于音频转码。', kind: 'text', placeholder: '自动' },
-					{ field: 'modelsDir', label: '模型目录', hint: '留空 = <仓库>/bin/models。', kind: 'text', placeholder: '自动' },
+					{ field: 'ffmpegPath', label: 'ffmpeg 路径', hint: '留空 = <assetsDir>/bin/ffmpeg/ffmpeg（Windows 为 ffmpeg.exe；找不到时回退 PATH）；也可填所在目录。用于音频转码。', kind: 'text', placeholder: '自动' },
+					{ field: 'modelsDir', label: '模型目录', hint: '留空 = <assetsDir>/bin/models。', kind: 'text', placeholder: '自动' },
 					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
 					{ field: 'device', label: 'GPU 序号', hint: '多卡时选择设备。', kind: 'number' },
 					{ field: 'threads', label: '线程数', hint: '0 = 自动。', kind: 'number' },
@@ -227,7 +249,7 @@ window.__ModuleLoader__.load({
 					{ field: 'ttsFamily', label: '模型家族', hint: 'audio.cpp --family，例如 index_tts2。', kind: 'text' },
 					{ field: 'ttsModel', label: '模型路径', hint: '留空 = <modelsDir>/IndexTTS2.5-GGUF/index-tts2_5-f16.gguf（fp16）。', kind: 'text' },
 					{ field: 'ttsDefaultVoiceRef', label: '默认参考音色', hint: 'IndexTTS2.5 必须给参考音色；留空则调用时需传 voice_path。', kind: 'text', placeholder: '选择或留空' },
-					{ field: 'ttsVoiceDir', label: '音色目录', hint: '留空 = <仓库>/voices，audio_toolkit_tts_list_voices 列这里的 wav。', kind: 'text', placeholder: '自动' },
+					{ field: 'ttsVoiceDir', label: '音色目录', hint: '留空 = <assetsDir>/voices，audio_toolkit_tts_list_voices 列这里的 wav。', kind: 'text', placeholder: '自动' },
 					{ field: 'ttsLanguage', label: '默认语言', hint: 'auto 按文本推断。', kind: 'enum', values: ['auto', 'zh', 'en', 'ja', 'es', 'ar'] },
 					{ field: 'ttsEmotion', label: '默认情绪文本', hint: '可留空；调用时也能覆盖。', kind: 'text', placeholder: '例如：平静友好' },
 					{ field: 'ttsSessionOptions', label: 'session options', hint: '空格分隔，形如 index_tts2.mem_saver=true。', kind: 'list' },
@@ -278,6 +300,7 @@ window.__ModuleLoader__.load({
 			constructor(scope) {
 				this.form = new prim.SettingsFormModel(scope, buildSpecs())
 				this.store = this.form.bind(() => this.projection())
+				this.assets = new AssetsStatusStore()
 			}
 
 			projection() {
@@ -290,17 +313,302 @@ window.__ModuleLoader__.load({
 
 			inject() {
 				return {
-					hooks: { audioToolkitCard: this.store },
+					hooks: { audioToolkitCard: this.store, audioToolkitAssets: this.assets.use },
 					...this.form.actions(),
 				}
 			}
 
 			dispose() {
+				this.assets.dispose()
 				this.form.dispose()
 			}
 		}
 		//#endregion
 
+		//#region assets card
+		/** Platforms the release ships builds for (release tokens). */
+		const ASSET_PLATFORMS = ['windows', 'ubuntu', 'macos']
+		/** Backends the release ships builds for; uto follows the platform. */
+		const ASSET_BACKENDS = ['auto', 'cuda', 'cpu', 'vulkan', 'rocm', 'metal']
+		/** Host token → release platform token. */
+		const HOST_PLATFORM = { win32: 'windows', linux: 'ubuntu', darwin: 'macos' }
+		/** Small helper so the card does not import a formatter. */
+		function formatBytes(value) {
+			const units = ['B', 'KiB', 'MiB', 'GiB']
+			let size = Number(value) || 0
+			let unit = 0
+			while (size >= 1024 && unit < units.length - 1) {
+				size /= 1024
+				unit += 1
+			}
+			return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+		}
+
+		/**
+		 * Polls the host's loopback assets API (`/status`, `/install`, `/cancel`).
+		 *
+		 * The settings form only speaks config, so asset state and progress come
+		 * from that little server. Polling runs only while the card is mounted.
+		 */
+		class AssetsStatusStore {
+			constructor() {
+				this.subscribers = new Set()
+				this.timer = null
+				this.basePort = 8789
+				this.port = 0
+				this.inflight = false
+				this.view = {
+					loading: true,
+					error: '',
+					status: null,
+					options: { release: true, models: true, platform: '', backend: '' },
+				}
+				this.subscribe = (notify) => {
+					this.subscribers.add(notify)
+					if (!this.timer) {
+						this.refresh()
+						this.timer = setInterval(() => this.refresh(), 1500)
+					}
+					return () => {
+						this.subscribers.delete(notify)
+						if (this.subscribers.size === 0) {
+							clearInterval(this.timer)
+							this.timer = null
+						}
+					}
+				}
+				this.getSnapshot = () => this.view
+				this.use = (selector) => {
+					const snapshot = React.useSyncExternalStore(this.subscribe, this.getSnapshot)
+					return typeof selector === 'function' ? selector(snapshot) : snapshot
+				}
+				this.install = this.install.bind(this)
+				this.cancel = this.cancel.bind(this)
+				this.refresh = this.refresh.bind(this)
+				this.toggle = this.toggle.bind(this)
+				this.choose = this.choose.bind(this)
+				this.setPort = this.setPort.bind(this)
+				this.view = {
+					...this.view,
+					install: this.install,
+					cancel: this.cancel,
+					refresh: this.refresh,
+					toggle: this.toggle,
+					choose: this.choose,
+					setPort: this.setPort,
+				}
+			}
+
+			emit(patch) {
+				this.view = { ...this.view, ...patch }
+				for (const notify of this.subscribers) notify()
+			}
+
+			dispose() {
+				if (this.timer) clearInterval(this.timer)
+				this.timer = null
+				this.subscribers.clear()
+			}
+
+			setPort(value) {
+				const port = Number(value)
+				if (!Number.isFinite(port) || port < 1024 || port === this.basePort) return
+				this.basePort = port
+				this.port = 0
+			}
+
+			toggle(key) {
+				if (!(key in this.view.options)) return
+				this.emit({ options: { ...this.view.options, [key]: !this.view.options[key] } })
+			}
+
+			choose(key, value) {
+				if (key !== 'platform' && key !== 'backend') return
+				this.emit({ options: { ...this.view.options, [key]: value } })
+			}
+
+			async refresh() {
+				if (this.inflight) return
+				this.inflight = true
+				try {
+					const candidates = this.port ? [this.port] : Array.from({ length: 6 }, (_, index) => this.basePort + index)
+					for (const port of candidates) {
+						try {
+							const response = await fetch(`http://127.0.0.1:${port}/status`, { cache: 'no-store' })
+							if (!response.ok) continue
+							const status = await response.json()
+							this.port = port
+							this.emit({ loading: false, error: '', status })
+							return
+						} catch {
+							/* try the next port */
+						}
+					}
+					this.port = 0
+					this.emit({ loading: false, error: 'unreachable', status: null })
+				} finally {
+					this.inflight = false
+				}
+			}
+
+			async post(pathname, body) {
+				if (!this.port) await this.refresh()
+				if (!this.port) return
+				try {
+					await fetch(`http://127.0.0.1:${this.port}${pathname}`, {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify(body ?? {}),
+					})
+				} catch {
+					/* the status poll will surface the failure */
+				}
+				await this.refresh()
+			}
+
+			install() {
+				return this.post('/install', { ...this.view.options })
+			}
+
+			cancel() {
+				return this.post('/cancel', {})
+			}
+		}
+
+		/** The "runtime assets" card: status, install options, progress. */
+		function AssetsCard(props) {
+			const { t, state, assets } = props
+			if (!assets) return null
+			const status = assets.status
+			const install = status?.install
+			const running = Boolean(install?.running)
+			const ready = Boolean(status?.ready)
+			const missing = status?.missing ?? []
+			const total = Number(install?.total) || 0
+			const done = Number(install?.done) || 0
+			const percent = running && total > 0 ? Math.min(100, Math.floor((done / total) * 100)) : 0
+			const writable = Boolean(state?.writable)
+			const windows = status?.platform === 'win32'
+
+			const badge = jsx(
+				prim.Tag,
+				{
+					tone: ready ? 'neutral' : 'outline',
+					children: ready ? `✓ ${t('assetsReady')}` : `${t('assetsMissing')}: ${missing.join('、') || '—'}`,
+				},
+				'badge',
+			)
+
+			const sizes = status
+				? jsx('code', { style: STYLE.code, children: `${formatBytes(status.sizes.release + status.sizes.models)}` }, 'sizes')
+				: null
+
+			const progress = running
+				? jsxs(
+						'div',
+						{
+							style: STYLE.rowStacked,
+							children: [
+								jsx('progress', { value: percent, max: 100, style: STYLE.full }, 'bar'),
+								jsx(
+									'span',
+									{
+										style: STYLE.hint,
+										children: `${t('assetsInstalling')} · ${install.phase || ''} ${install.file || ''} ${percent}% (${formatBytes(done)} / ${total ? formatBytes(total) : '?'})`,
+									},
+									'detail',
+								),
+							],
+						},
+						'progress',
+					)
+				: null
+
+			const failure = install?.error && !running ? jsx('p', { style: STYLE.invalid, children: install.error }, 'error') : null
+
+			const options = jsxs(
+				'div',
+				{
+					style: STYLE.row,
+					children: [
+						jsx('span', { style: STYLE.hint, children: t('assetsOptions') }, 'label'),
+						jsx('label', { style: STYLE.hint, children: [jsx('input', { type: 'checkbox', checked: assets.options.release, onChange: () => assets.toggle('release'), disabled: running }, 'release'), ` ${t('assetsRelease')}`] }, 'optRelease'),
+						jsx('label', { style: STYLE.hint, children: [jsx('input', { type: 'checkbox', checked: assets.options.models, onChange: () => assets.toggle('models'), disabled: running }, 'models'), ` ${t('assetsModels')}`] }, 'optModels'),
+					],
+				},
+				'options',
+			)
+
+			const platform = assets.options.platform || HOST_PLATFORM[status?.platform] || 'windows'
+			const configuredBackend = String(state?.backend?.text ?? '')
+			const backend = assets.options.backend || (['cuda', 'cpu', 'vulkan'].includes(configuredBackend) ? configuredBackend : 'auto')
+			const selects = jsxs(
+				'div',
+				{
+					style: STYLE.row,
+					children: [
+						jsx('span', { style: STYLE.hint, children: t('assetsTarget') }, 'label'),
+						jsx(
+							'select',
+							{
+								value: platform,
+								disabled: running,
+								onChange: (event) => assets.choose('platform', event.target.value),
+								children: ASSET_PLATFORMS.map((value) => jsx('option', { value, children: value }, value)),
+							},
+							'platform',
+						),
+						jsx(
+							'select',
+							{
+								value: backend,
+								disabled: running,
+								onChange: (event) => assets.choose('backend', event.target.value),
+								children: ASSET_BACKENDS.map((value) => jsx('option', { value, children: value }, value)),
+							},
+							'backend',
+						),
+					],
+				},
+				'target',
+			)
+
+			const actions = jsxs(
+				'div',
+				{
+					style: STYLE.control,
+					children: [
+						jsx(prim.Button, { variant: 'primary', disabled: ready || running || !writable || !windows, onClick: () => assets.install(), children: t('assetsInstallAll') }, 'install'),
+						jsx(prim.Button, { variant: 'outline', disabled: !running, onClick: () => assets.cancel(), children: t('assetsCancel') }, 'cancel'),
+						jsx(prim.Button, { variant: 'outline', onClick: () => assets.refresh(), children: t('assetsRefresh') }, 'refresh'),
+					],
+				},
+				'actions',
+			)
+
+			const note = status
+				? jsx('p', { style: STYLE.hint, children: `${t('assetsRoot')}: ${status.root}${windows ? '' : ` · ${t('assetsUnavailable')}`}` }, 'note')
+				: jsx('p', { style: STYLE.hint, children: assets.loading ? '…' : t('assetsPortDown') }, 'note')
+
+			return jsxs(
+				'div',
+				{
+					style: STYLE.card,
+					children: [
+						jsxs('div', { style: STYLE.cardHead, children: [jsx('p', { style: STYLE.cardTitle, children: t('assetsTitle') }, 'title'), badge, sizes] }, 'head'),
+						jsx('p', { style: STYLE.cardHint, children: t('assetsHint') }, 'hint'),
+						options,
+						selects,
+						progress,
+						failure,
+						actions,
+						note,
+					],
+				},
+				'assets',
+			)
+		}
+		//#endregion
 		//#region page
 		// Layout tokens: the page only gets inline styles, so keep them in one place.
 		const STYLE = {
@@ -600,6 +908,12 @@ window.__ModuleLoader__.load({
 			const engineEnabledText = String(state.engineEnabled?.text ?? '').toLowerCase()
 			const engineOn = engineEnabledText === '' ? true : engineEnabledText === 'true'
 
+			// Asset status/progress come from the host's loopback service; the hook
+			// only polls while the card is mounted.
+			const assets = typeof props.useAudioToolkitAssets === 'function' ? props.useAudioToolkitAssets() : null
+			if (assets && typeof assets.setPort === 'function') assets.setPort(state.assetsApiPort?.text)
+			const assetsCard = jsx(AssetsCard, { t, state, assets }, 'assets')
+
 			const header = jsxs(
 				'div',
 				{
@@ -696,7 +1010,7 @@ window.__ModuleLoader__.load({
 				state,
 				onSave: props.save,
 				onDiscard: props.discard,
-				children: jsxs('div', { children: [header, strip, engineBar, ...sections] }, 'fields'),
+				children: jsxs('div', { children: [header, strip, assetsCard, engineBar, ...sections] }, 'fields'),
 			})
 		}
 		//#endregion

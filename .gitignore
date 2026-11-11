@@ -5,6 +5,8 @@ audio_toolkit_outputs/
 voices/
 audio_samples/
 node_modules/
+.git.bak-*/
+.pnpm-store/
 state/
 .DS_Store
 Thumbs.db

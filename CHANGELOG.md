@@ -3,6 +3,35 @@
 All notable changes to this project are documented here. The package version lives in
 `dsh-audio-toolkit/package.json` and is the single source of truth (`TOOLKIT_VERSION`).
 
+## 0.8.0
+
+### Added
+
+- **Panel-driven install.** The plugin panel shows a Runtime assets card with status, install
+  options (runtime / models), a target **platform and backend**, live progress and cancel,
+  backed by a loopback API on `assetsApiPort`. `assetsAutoDownload` defaults to off, so
+  nothing is downloaded without a click.
+- **Platform/backend-aware assets.** The release archive is chosen from the selected
+  platform + backend: Windows `.zip`, Linux/macOS `.tar.gz`, plus the matching `cudart`
+  archive for CUDA. Archive readers cover ZIP and tar.gz, and `audiocpp_server` /
+  `audiocpp_cli` names follow the platform.
+- `assetsDir`, `assetsAutoDownload`, `assetsProxy` and `assetsApiPort` config fields; every
+  path field now defaults to "auto" instead of a machine-specific absolute path.
+- Model downloads fall back to `hf-mirror.com` when `huggingface.co` is unreachable, and
+  honour `HF_ENDPOINT`; downloads resume from `.part` files.
+- `test/assets.mjs`: offline end-to-end test of target selection, download, ZIP/tar.gz
+  extraction, resume, mirror fallback and the guards (31 checks).
+
+### Changed
+
+- ffmpeg binary name follows the platform (`ffmpeg` on POSIX, `ffmpeg.exe` on Windows).
+- Automatic provisioning follows the panel `backend`; cross-platform installs are refused
+  with an explanation instead of producing a half-working install.
+
+### Fixed
+
+- Fresh clones / CI resolved the asset root to the *parent* of the repository, because the
+  package can sit at the repo root but has no `bin/` yet.
 ## 0.7.0
 
 ### Breaking

@@ -28,6 +28,7 @@ import {
 import { runCli } from './audiocpp.mjs'
 import { transcribeWithTimestamps } from './segments.mjs'
 import { JOB_STATUSES } from './jobs.mjs'
+import { installSnapshot, missingAssets } from './assets.mjs'
 import { cleanupScratch, isReadyWav, resolveFfmpeg, transcodeTo16kWav } from './transcode.mjs'
 
 /** Limit for one synthesis request; a longer prompt should be split by the caller. */
@@ -608,6 +609,14 @@ export async function audioStatus(params, cfg, context = {}) {
       device: cfg.audioCpp.device,
       // What transcoding would actually run (configured path or PATH fallback).
       ffmpeg: resolveFfmpeg(cfg) ?? null,
+    },
+    // Where the runtime assets live and whether they are complete.
+    assets: {
+      root: cfg.assets.root,
+      auto_download: cfg.assets.autoDownload,
+      ready: missingAssets(cfg).length === 0,
+      ...(missingAssets(cfg).length > 0 ? { missing: missingAssets(cfg) } : {}),
+      ...(installSnapshot().running ? { downloading: true } : {}),
     },
     tts: {
       family: cfg.tts.family,

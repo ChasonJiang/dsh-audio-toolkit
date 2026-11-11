@@ -24,42 +24,49 @@ Binaries and model weights are **not** distributed here. You provide them (see b
 
 | Requirement | Notes |
 |---|---|
-| Windows x64 + NVIDIA GPU | Primary target (audio.cpp also ships other platform builds) |
+| Windows x64 + NVIDIA GPU | Primary target; Linux/macOS builds (CPU/Vulkan/Metal/ROCm) are selectable in the panel |
 | Node.js `^22.19` or `>=24` | Declared in `engines` |
 | DeepSeek Harness | Tested against DSH `0.2.2-rc.1` desktop (nightly channel) |
-| [audio.cpp release](https://github.com/0xShug0/audio.cpp/releases) | `audiocpp_server.exe` + `audiocpp_cli.exe` + DLLs → `bin/audio.cpp/` (Apache-2.0) |
-| GGUF models | IndexTTS2.5 fp16 (≈4.5 GB), SenseVoice-Small q8 (≈254 MB), PulseVAD (≈81 KB) → `bin/models/` |
+| [audio.cpp release](https://github.com/0xShug0/audio.cpp/releases) | Downloaded automatically on first start (Apache-2.0) |
+| GGUF models | IndexTTS2.5 fp16 (≈4.5 GB), SenseVoice-Small q8 (≈254 MB), PulseVAD (≈81 KB) — also automatic |
 | ffmpeg | Optional; needed for non-WAV or non-16 kHz-mono input |
+| Disk + network | ≈6 GB once, on the first engine start |
 
-Model files and their licences are the responsibility of the user; the download helper
-(`scripts/download_models.py`) fetches them from Hugging Face.
+The release and the models are fetched into `~/.dsh/audio-toolkit` (`assetsDir` overrides
+it; `link:` installs use the repository's own `bin/`). Model licences are the user's
+responsibility; the downloader honours `HF_ENDPOINT` and falls back to `hf-mirror.com` when
+Hugging Face is unreachable.
 
 ## Install
 
-**A. From npm (recommended once published)**
+Any of these works; nothing has to be placed by hand.
 
 ```text
-plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.7.0")
-```
-
-**B. From a local checkout (development)**
-
-```text
+plugin_manager(action="install_bundle", target="github:<owner>/dsh-audio-toolkit")
+plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.0")
 plugin_manager(action="install_bundle", target="link:<absolute path to this repo>")
 ```
 
-**C. From a clone** — clone this repo and use B against the clone root. Because the
-package sits at the repository root, `github:<owner>/dsh-audio-toolkit` install specs work too.
+**A. From Git / npm** — the package ships only code. The plugin panel shows a
+**Runtime assets** card: status, what is missing, install options (runtime / models, target platform and backend) and,
+once you press **Install missing assets**, a live progress bar with cancel. The release archive is chosen for the selected platform/backend. Assets go to
+`~/.dsh/audio-toolkit` (≈6 GB, once); set `assetsProxy` if your network needs one, and
+`assetsDir` to reuse an existing install. Nothing is downloaded without your click unless
+you turn on `assetsAutoDownload`.
 
-If your binaries or models live elsewhere, set `binDir`, `modelsDir` and `ffmpegPath` in
-the plugin panel — no file moves required.
+**B. From a local checkout** — `link:` installs use the repository's own `bin/`, so an
+existing 6 GB install is reused as-is.
+
+Already have the assets somewhere else? Point `assetsDir` at that directory in the panel;
+`binDir` / `modelsDir` still override individual paths.
 
 ## First run
 
-1. Put the audio.cpp release in `bin/audio.cpp/` and the three GGUF files in `bin/models/`.
-2. Enable the plugin, open its panel and press **启动引擎** (start engine).
-3. `audio_toolkit_engine_status` → expect `install_ok: true` and `engine.running: true`.
-4. Try `audio_toolkit_tts_speak` (needs a reference voice) or
+1. Enable the plugin and open its panel. In **Runtime assets** press **Install missing
+   assets** (pick runtime and/or models) — the card shows progress and the installed size.
+2. Press **启动引擎** (start engine). `audio_toolkit_engine_status` should report
+   `assets.ready: true`, `install_ok: true`, `engine.running: true`.
+3. Try `audio_toolkit_tts_speak` (needs a reference voice) or
    `audio_toolkit_asr_transcribe` (any audio file).
 
 Full details — configuration fields, the tool contract, troubleshooting — are in
@@ -68,7 +75,7 @@ Full details — configuration fields, the tool contract, troubleshooting — ar
 ## Development
 
 ```bash
-npm test            # syntax + unit tests; engine checks SKIP when bin/models are absent
+npm test            # syntax + unit + asset-bootstrap tests; engine checks SKIP without bin/models
 npm run test:smoke  # end-to-end, needs the release, models and a GPU
 npm run docs:contract  # regenerate the tool contract in docs/GUIDE.zh.md
 ```

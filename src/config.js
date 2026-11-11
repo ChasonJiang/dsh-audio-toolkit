@@ -17,6 +17,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 /** Absolute path of the toolkit package root (the repository root). */
@@ -33,6 +34,10 @@ export const ASSET_ROOT = PACKAGE_ROOT
 
 /** Back-compat alias: tests and scripts call the asset root `REPO_ROOT`. */
 export const REPO_ROOT = ASSET_ROOT
+
+/** audio.cpp executable names on this platform (udiocpp_server.exe on Windows). */
+export const SERVER_BINARY = process.platform === 'win32' ? 'audiocpp_server.exe' : 'audiocpp_server'
+export const CLI_BINARY = process.platform === 'win32' ? 'audiocpp_cli.exe' : 'audiocpp_cli'
 
 /** ffmpeg executable name used when a directory is configured instead of a file. */
 export const FFMPEG_BINARY = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
@@ -69,9 +74,40 @@ export const STATE_LOG_PATH = join(STATE_DIR, 'engine.log')
 /** Environment override used by tests and by manual MCP runs. */
 export const CONFIG_ENV = 'AUDIO_TOOLKIT_CONFIG'
 
-const DEFAULT_BIN_ROOT = join(REPO_ROOT, 'bin')
-const DEFAULT_BIN_DIR = join(DEFAULT_BIN_ROOT, 'audio.cpp')
-const DEFAULT_MODELS_DIR = join(DEFAULT_BIN_ROOT, 'models')
+/**
+ * Per-user asset root used when the package ships no `bin/` (a git/npm install).
+ *
+ * `DSH_AUDIO_TOOLKIT_ASSETS` overrides it, which is also how the tests point at
+ * a temporary directory.
+ */
+export function userAssetsDir() {
+  const override = process.env.DSH_AUDIO_TOOLKIT_ASSETS
+  if (override) return resolve(override)
+  return join(homedir(), '.dsh', 'audio-toolkit')
+}
+
+/**
+ * Where `bin/` lives: an explicit config value first, then the environment, then
+ * the package itself (development / `link:` install), then the per-user cache.
+ *
+ * The last fallback is the *target* for the automatic download, so a fresh
+ * `github:` install resolves to a writable path before anything exists there.
+ */
+export function discoverAssetsRoot(configured) {
+  const explicit = typeof configured === 'string' ? configured.trim() : ''
+  if (explicit) return resolvePath(explicit)
+  const env = process.env.DSH_AUDIO_TOOLKIT_ASSETS
+  if (env) return resolve(env)
+  if (existsSync(join(PACKAGE_ROOT, 'bin', 'audio.cpp'))) return PACKAGE_ROOT
+  return userAssetsDir()
+}
+
+/** Model file layout under `<assets>/bin/models`. */
+const MODEL_LAYOUT = {
+  tts: join('IndexTTS2.5-GGUF', 'index-tts2_5-f16.gguf'),
+  asr: join('SenseVoice-Small-GGUF', 'sensevoice-small-q8-audiocpp-v1.gguf'),
+  vad: join('PulseVAD-GGUF', 'pulsevad-2.1k-f32.gguf'),
+}
 
 /**
  * Default configuration, flat and absolute where it matters so the panel form
@@ -88,26 +124,31 @@ export const DEFAULT_CONFIG = {
   engineHost: '127.0.0.1',
   enginePort: 8788,
 
-  binDir: DEFAULT_BIN_DIR,
+  // Empty path fields mean "derive from assetsDir"; the panel shows 自动.
+  assetsDir: '',
+  assetsAutoDownload: false,
+  assetsProxy: '',
+  assetsApiPort: 8789,
+  binDir: '',
   cliPath: '',
-  ffmpegPath: join(DEFAULT_BIN_ROOT, 'ffmpeg', FFMPEG_BINARY),
-  modelsDir: DEFAULT_MODELS_DIR,
+  ffmpegPath: '',
+  modelsDir: '',
   backend: 'cuda',
   device: 0,
   threads: 0,
   extraArgs: '',
 
   ttsFamily: 'index_tts2',
-  ttsModel: join(DEFAULT_MODELS_DIR, 'IndexTTS2.5-GGUF', 'index-tts2_5-f16.gguf'),
+  ttsModel: '',
   ttsDefaultVoiceRef: '',
-  ttsVoiceDir: join(REPO_ROOT, 'voices'),
+  ttsVoiceDir: '',
   ttsLanguage: 'auto',
   ttsEmotion: '',
   ttsSessionOptions: '',
 
   asrFamily: 'sense_asr',
-  asrModel: join(DEFAULT_MODELS_DIR, 'SenseVoice-Small-GGUF', 'sensevoice-small-q8-audiocpp-v1.gguf'),
-  asrVadModel: join(DEFAULT_MODELS_DIR, 'PulseVAD-GGUF', 'pulsevad-2.1k-f32.gguf'),
+  asrModel: '',
+  asrVadModel: '',
   asrChunkMode: 'fixed',
   asrChunkSeconds: 30,
   asrLanguage: 'auto',
@@ -272,10 +313,18 @@ export function resolveConfig(raw = {}, options = {}) {
   const get = (key) => (raw && typeof raw === 'object' ? raw[key] : undefined)
   const baseDir = resolvePath(options.baseDir || '') || process.cwd()
 
-  const binDir = resolvePath(pathOr(get('binDir'), DEFAULT_CONFIG.binDir))
-  const modelsDir = resolvePath(pathOr(get('modelsDir'), DEFAULT_CONFIG.modelsDir))
+  // Assets: every path field defaults to "auto". An explicit binDir/modelsDir
+  // wins; otherwise both follow the discovered asset root.
+  const assetsRoot = discoverAssetsRoot(pathOr(get('assetsDir'), DEFAULT_CONFIG.assetsDir))
+  const binOverride = pathOr(get('binDir'), '')
+  const modelsOverride = pathOr(get('modelsDir'), '')
+  const binDir = resolvePath(binOverride || join(assetsRoot, 'bin', 'audio.cpp'))
+  const modelsDir = resolvePath(modelsOverride || join(assetsRoot, 'bin', 'models'))
+  const ttsModel = resolvePath(pathOr(get('ttsModel'), '') || join(modelsDir, MODEL_LAYOUT.tts))
+  const asrModel = resolvePath(pathOr(get('asrModel'), '') || join(modelsDir, MODEL_LAYOUT.asr))
+  const asrVadModel = resolvePath(pathOr(get('asrVadModel'), '') || join(modelsDir, MODEL_LAYOUT.vad))
   // `ffmpegPath` may point at the executable or at the directory holding it.
-  const ffmpegConfigured = resolvePath(pathOr(get('ffmpegPath'), DEFAULT_CONFIG.ffmpegPath))
+  const ffmpegConfigured = resolvePath(pathOr(get('ffmpegPath'), '') || join(assetsRoot, 'bin', 'ffmpeg', FFMPEG_BINARY))
   const ffmpegPath = isDir(ffmpegConfigured) ? join(ffmpegConfigured, FFMPEG_BINARY) : ffmpegConfigured
   // Output: a folder *name* under the session working directory. An absolute
   // value is honored as-is for advanced users.
@@ -301,19 +350,27 @@ export function resolveConfig(raw = {}, options = {}) {
       ),
       maxConcurrentCalls: Math.min(Math.max(int(get('maxConcurrentCalls'), DEFAULT_CONFIG.maxConcurrentCalls, { min: 1 }), 1), 8),
     },
+    assets: {
+      root: assetsRoot,
+      autoDownload: bool(get('assetsAutoDownload'), DEFAULT_CONFIG.assetsAutoDownload),
+      proxy: str(get('assetsProxy'), ''),
+      apiPort: Math.min(Math.max(int(get('assetsApiPort'), DEFAULT_CONFIG.assetsApiPort, { min: 1024 }), 1024), 65535),
+      // True when binDir/modelsDir follow the asset root, i.e. the plugin may provision it.
+      derived: !binOverride && !modelsOverride,
+    },
     engine: {
       enabled: bool(get('engineEnabled'), DEFAULT_CONFIG.engineEnabled),
       autoStart: bool(get('engineAutoStart'), DEFAULT_CONFIG.engineAutoStart),
       host,
       port,
       url: `http://${host}:${port}`,
-      exePath: join(binDir, 'audiocpp_server.exe'),
+      exePath: join(binDir, SERVER_BINARY),
       configPath: STATE_ENGINE_CONFIG_PATH,
       logPath: STATE_LOG_PATH,
     },
     audioCpp: {
       binDir,
-      cliPath: resolvePath(str(get('cliPath'), '')) || join(binDir, 'audiocpp_cli.exe'),
+      cliPath: resolvePath(str(get('cliPath'), '')) || join(binDir, CLI_BINARY),
       ffmpegPath,
       modelsDir,
       backend: str(get('backend'), DEFAULT_CONFIG.backend) || 'cuda',
@@ -324,9 +381,9 @@ export function resolveConfig(raw = {}, options = {}) {
     tts: {
       id: 'tts',
       family: str(get('ttsFamily'), DEFAULT_CONFIG.ttsFamily) || 'index_tts2',
-      model: resolvePath(pathOr(get('ttsModel'), DEFAULT_CONFIG.ttsModel)),
+      model: ttsModel,
       defaultVoiceRef: resolvePath(str(get('ttsDefaultVoiceRef'), '')),
-      voiceDir: resolvePath(pathOr(get('ttsVoiceDir'), DEFAULT_CONFIG.ttsVoiceDir)),
+      voiceDir: resolvePath(pathOr(get('ttsVoiceDir'), '') || join(assetsRoot, 'voices')),
       language: str(get('ttsLanguage'), 'auto') || 'auto',
       emotion: str(get('ttsEmotion'), ''),
       sessionOptions: splitTokens(get('ttsSessionOptions')),
@@ -334,8 +391,8 @@ export function resolveConfig(raw = {}, options = {}) {
     asr: {
       id: 'asr',
       family: str(get('asrFamily'), DEFAULT_CONFIG.asrFamily) || 'sense_asr',
-      model: resolvePath(pathOr(get('asrModel'), DEFAULT_CONFIG.asrModel)),
-      vadModel: resolvePath(pathOr(get('asrVadModel'), DEFAULT_CONFIG.asrVadModel)),
+      model: asrModel,
+      vadModel: asrVadModel,
       chunkMode: str(get('asrChunkMode'), DEFAULT_CONFIG.asrChunkMode) || 'fixed',
       chunkSeconds: Math.min(Math.max(num(get('asrChunkSeconds'), DEFAULT_CONFIG.asrChunkSeconds), 1), 600),
       language: str(get('asrLanguage'), 'auto') || 'auto',
