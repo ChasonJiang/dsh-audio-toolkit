@@ -19,7 +19,6 @@ window.__ModuleLoader__.load({
 		var exports = module.exports
 		Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
-		const React = require('react')
 		const { jsx, jsxs } = require('react/jsx-runtime')
 		const prim = require('@deepseek-ai/dsh-client-ui-primitives')
 
@@ -313,7 +312,7 @@ window.__ModuleLoader__.load({
 
 			inject() {
 				return {
-					hooks: { audioToolkitCard: this.store, audioToolkitAssets: this.assets.use },
+					hooks: { audioToolkitCard: this.store, audioToolkitAssets: this.assets.store },
 					...this.form.actions(),
 				}
 			}
@@ -378,9 +377,14 @@ window.__ModuleLoader__.load({
 					}
 				}
 				this.getSnapshot = () => this.view
-				this.use = (selector) => {
-					const snapshot = React.useSyncExternalStore(this.subscribe, this.getSnapshot)
-					return typeof selector === 'function' ? selector(snapshot) : snapshot
+				// The host wraps this store into a React hook (same contract as the
+				// form store), so the bundle itself never touches React hooks.
+				this.store = {
+					subscribe: this.subscribe,
+					getSnapshot: this.getSnapshot,
+					// React's useSyncExternalStore accepts an optional third argument;
+					// providing it keeps the wrapper happy if the host passes all three.
+					getServerSnapshot: this.getSnapshot,
 				}
 				this.install = this.install.bind(this)
 				this.cancel = this.cancel.bind(this)

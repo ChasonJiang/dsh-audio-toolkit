@@ -170,6 +170,13 @@ async function main() {
   const itemEntry = registrations.find((entry) => entry.definition.name === 'plugins.item')
   check('registers the bundle config section', bundleSection !== undefined, bundleSection?.definition.key)
   check('also registers a labelled plugin item', itemEntry !== undefined, itemEntry?.definition.id)
+  const injected = typeof bundleSection?.definition?.inject === 'function' ? bundleSection.definition.inject() : {}
+  const assetsHook = injected?.hooks?.audioToolkitAssets
+  check(
+    'asset hook is a store, not a hook function',
+    typeof assetsHook?.subscribe === 'function' && typeof assetsHook?.getSnapshot === 'function',
+    typeof assetsHook,
+  )
 
   const { definition, component } = bundleSection ?? { definition: {}, component: () => null }
   check('config section is keyed by the bundle name', definition.key === 'dsh-audio-toolkit', definition.key)
