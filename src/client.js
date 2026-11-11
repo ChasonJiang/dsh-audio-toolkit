@@ -53,12 +53,6 @@ window.__ModuleLoader__.load({
 			off: '关',
 			dirty: '有未保存修改',
 			saved: '已同步',
-			hintEngine: '常驻进程与端口，保存后按需重启',
-			hintMcp: '工具调用超时与并发',
-			hintAudioCpp: '运行时目录与推理后端',
-			hintTts: 'IndexTTS2.5 fp16 模型与音色',
-			hintAsr: 'SenseVoice 模型与分块策略',
-			hintOutput: '合成产物落在哪里',
 			setupTitle: '首次设置：准备运行时依赖',
 			setupIntro: '安装包只包含代码。audio.cpp 运行时与三个模型（约 6 GB）需要单独准备，装好后才能使用语音工具。',
 			setupStep1: '选择准备方式',
@@ -75,7 +69,7 @@ window.__ModuleLoader__.load({
 			manualWaiting: '把依赖放到下面这些位置后点「刷新状态」，就绪后会自动出现其余配置项。',
 			switchToManual: '改用手动下载',
 			switchToAuto: '改用自动安装',
-			manualSources: '下载来源：audio.cpp releases（解压到 bin/audio.cpp）；三个 GGUF 在 Hugging Face 的 audio-cpp/audio.cpp-gguf 与 FunAudioLLM/SenseVoiceSmall-GGUF-audiocpp（国内可用 hf-mirror.com 镜像）。',
+			manualSources: '模型来源：Hugging Face 的 audio-cpp/audio.cpp-gguf 与 FunAudioLLM/SenseVoiceSmall-GGUF-audiocpp（国内可用 hf-mirror.com 镜像）；release 见 audio.cpp 的 Releases 页。',
 			manualTitle: '手动放置依赖',
 			manualBody: '把文件放到下面这些位置，然后点「刷新状态」。',
 			manualRefresh: '刷新状态',
@@ -130,12 +124,6 @@ window.__ModuleLoader__.load({
 			off: 'off',
 			dirty: 'Unsaved changes',
 			saved: 'In sync',
-			hintEngine: 'Resident process and port',
-			hintMcp: 'Tool timeout and concurrency',
-			hintAudioCpp: 'Runtime paths and backend',
-			hintTts: 'IndexTTS2.5 fp16 model and voices',
-			hintAsr: 'SenseVoice model and chunking',
-			hintOutput: 'Where synthesized audio lands',
 			assetsTitle: 'Runtime assets',
 			assetsHint: 'audio.cpp, models and the CUDA runtime. Git/npm installs ship only code; install them here when needed.',
 			assetsReady: 'Ready',
@@ -174,7 +162,7 @@ window.__ModuleLoader__.load({
 			manualWaiting: 'Place the files below and press Refresh; the rest of the form appears once they are ready.',
 			switchToManual: 'Switch to manual download',
 			switchToAuto: 'Switch to automatic install',
-			manualSources: 'Sources: audio.cpp releases (extract into bin/audio.cpp); the three GGUF files live on Hugging Face under audio-cpp/audio.cpp-gguf and FunAudioLLM/SenseVoiceSmall-GGUF-audiocpp (hf-mirror.com works from mainland China).',
+			manualSources: 'Models: Hugging Face repositories audio-cpp/audio.cpp-gguf and FunAudioLLM/SenseVoiceSmall-GGUF-audiocpp (hf-mirror.com works from mainland China); releases: the audio.cpp Releases page.',
 			manualTitle: 'Place the assets manually',
 			manualBody: 'Put the files at the locations below, then press “Refresh”.',
 			manualRefresh: 'Refresh',
@@ -275,7 +263,6 @@ window.__ModuleLoader__.load({
 		const SECTIONS = [
 			{
 				key: 'sectionEngine',
-				hintKey: 'hintEngine',
 				fields: [
 					{ field: 'engineAutoStart', label: '随 DSH 自动启动', hint: 'DSH 启动/插件启用时自动拉起引擎（懒加载，首次请求才占显存）。', kind: 'boolean', fallback: true },
 					{ field: 'engineHost', label: '监听地址', hint: '保持 127.0.0.1。', kind: 'text' },
@@ -284,7 +271,6 @@ window.__ModuleLoader__.load({
 			},
 			{
 				key: 'sectionMcp',
-				hintKey: 'hintMcp',
 				fields: [
 					{ field: 'mcpServerName', label: 'MCP 服务名', hint: '仅独立 MCP 服务使用；原生工具名固定为 audio_toolkit_*。', kind: 'text' },
 					{ field: 'toolCallTimeoutMs', label: '调用超时', hint: '单次 TTS/ASR 请求的等待上限。', kind: 'number', unit: 'ms' },
@@ -293,13 +279,12 @@ window.__ModuleLoader__.load({
 			},
 			{
 				key: 'sectionAudioCpp',
-				hintKey: 'hintAudioCpp',
 				fields: [
-					{ field: 'assetsDir', label: '资产根目录', hint: '存放 bin/audio.cpp 与 bin/models。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → ~/.dsh/audio-toolkit。', kind: 'text', placeholder: '自动' },
-					{ field: 'assetsAutoDownload', label: '自动下载资产', hint: '打开后引擎启动时自动补齐依赖（约 6 GB）；默认关闭，用上方「安装依赖」手动确认。', kind: 'boolean', fallback: false },
+					{ field: 'assetsDir', label: '资产根目录', hint: '存放 bin/audio.cpp、bin/models 与 bin/ffmpeg。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → ~/.dsh/audio-toolkit。', kind: 'text', placeholder: '自动' },
+					{ field: 'assetsAutoDownload', label: '自动下载资产', hint: '打开后引擎启动时自动补齐依赖（含 ffmpeg，约 6.1 GB）；默认关闭，用上方「安装依赖」手动确认。', kind: 'boolean', fallback: false },
 					{ field: 'assetsProxyEnabled', label: '使用下载代理', hint: '默认关闭；打开后才会用下面的地址下载依赖。', kind: 'boolean', fallback: false },
-					{ field: 'assetsProxy', label: '下载代理', hint: '留空 = 用 HTTPS_PROXY / HTTP_PROXY；国内直连 GitHub/HF 不通时填本地代理，例如 http://127.0.0.1:7890。', kind: 'text', placeholder: 'http://127.0.0.1:7890' },
-					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
+					{ field: 'assetsProxy', label: '下载代理', hint: '仅勾选「使用下载代理」时生效；留空则回退环境变量 HTTPS_PROXY / HTTP_PROXY。国内直连 GitHub/HF 不通时填本地代理，例如 http://127.0.0.1:7890。', kind: 'text', placeholder: 'http://127.0.0.1:7890' },
+					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启；须与安装依赖时选择的后端一致（例如装的是 CUDA 版就选 cuda）。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
 					{ field: 'device', label: 'GPU 序号', hint: '多卡时选择设备。', kind: 'number' },
 					{ field: 'threads', label: '线程数', hint: '0 = 自动。', kind: 'number' },
 					{ field: 'extraArgs', label: '额外参数', hint: '空格分隔；一般留空。', kind: 'list' },
@@ -307,7 +292,6 @@ window.__ModuleLoader__.load({
 			},
 			{
 				key: 'sectionTts',
-				hintKey: 'hintTts',
 				fields: [
 					{ field: 'ttsFamily', label: '模型家族', hint: 'audio.cpp --family，例如 index_tts2。', kind: 'text' },
 					{ field: 'ttsDefaultVoiceRef', label: '默认参考音色', hint: 'IndexTTS2.5 必须给参考音色；留空则调用时需传 voice_path。', kind: 'text', placeholder: '选择或留空' },
@@ -319,11 +303,10 @@ window.__ModuleLoader__.load({
 			},
 			{
 				key: 'sectionAsr',
-				hintKey: 'hintAsr',
 				fields: [
 					{ field: 'asrFamily', label: '模型家族', hint: 'audio.cpp --family，例如 sense_asr。', kind: 'text' },
-					{ field: 'asrChunkMode', label: '分块方式', hint: 'fixed 最稳；auto/vad 需要 VAD 且要求 16k 单声道输入。', kind: 'enum', values: ['fixed', 'auto', 'vad', 'none'] },
-					{ field: 'asrChunkSeconds', label: '分块秒数', hint: 'fixed 模式下每段时长。', kind: 'number', unit: 's' },
+					{ field: 'asrChunkMode', label: '分块方式', hint: 'fixed 最稳；auto/vad 会用 VAD 切分（输入会自动转成 16k 单声道）。', kind: 'enum', values: ['fixed', 'auto', 'vad', 'none'] },
+					{ field: 'asrChunkSeconds', label: '分块秒数', hint: 'fixed 时是每段时长；auto/vad 时是单段上限。', kind: 'number', unit: 's' },
 					{ field: 'asrLanguage', label: '默认识别语言', hint: 'auto 或 zh/en/yue/ja/ko…。', kind: 'text' },
 					{ field: 'asrEnableItn', label: '逆文本规整', hint: '开 = 数字与标点会被规整。', kind: 'boolean', fallback: true },
 					{ field: 'asrMinSegmentMs', label: '最短句段', hint: '句级时间戳：短于该时长的 VAD 段丢弃。', kind: 'number', unit: 'ms' },
@@ -333,7 +316,6 @@ window.__ModuleLoader__.load({
 			},
 			{
 				key: 'sectionOutput',
-				hintKey: 'hintOutput',
 				fields: [{ field: 'outputFolder', label: '输出文件夹名', hint: '在当前会话工作目录下创建该文件夹；只填名称，默认 audio_toolkit_outputs。', kind: 'text', placeholder: 'audio_toolkit_outputs' }],
 			},
 		]
@@ -1121,6 +1103,28 @@ window.__ModuleLoader__.load({
 				}
 				const proxyEnabled = String(state.assetsProxyEnabled?.text ?? '').toLowerCase() === 'true'
 
+				// Platform-specific manual instructions (the release names differ).
+				const statusPlatform = assets?.status?.platform ?? ''
+				const osToken = { win32: 'windows', linux: 'ubuntu', darwin: 'macos' }[statusPlatform] ?? 'windows'
+				const arch = assets?.status?.arch === 'arm64' ? 'arm64' : 'x64'
+				const manualBackend = String(state.backend?.text ?? '') || (osToken === 'macos' ? 'metal' : 'cuda')
+				const archiveExt = osToken === 'windows' ? '.zip' : '.tar.gz'
+				const releaseExample = `audio-vX-bin-${osToken}-${arch}-${manualBackend}${archiveExt}`
+				const serverName = osToken === 'windows' ? 'audiocpp_server.exe' : 'audiocpp_server'
+				const ffmpegName = osToken === 'windows' ? 'ffmpeg.exe' : 'ffmpeg'
+				const manualAssets =
+					osToken === 'windows'
+						? [
+								['release', `下载 ${releaseExample}，解压后把 ${serverName} 等文件放到 <root>/bin/audio.cpp。`],
+								['models', '三个模型放到 <root>/bin/models/{IndexTTS2.5-GGUF,SenseVoice-Small-GGUF,PulseVAD-GGUF}。'],
+								['ffmpeg', `ffmpeg 放到 <root>/bin/ffmpeg/${ffmpegName}（或 PATH 上）。`],
+							]
+						: [
+								['release', `下载 ${releaseExample}（CUDA 选 cuda 还需同版本 cudart 包），解压到 <root>/bin/audio.cpp，并 chmod +x ${serverName}。`],
+								['models', '三个模型放到 <root>/bin/models/{IndexTTS2.5-GGUF,SenseVoice-Small-GGUF,PulseVAD-GGUF}。'],
+								['ffmpeg', `用系统包管理器安装 ffmpeg（或放到 <root>/bin/ffmpeg/${ffmpegName}）。`],
+							]
+
 				let body
 				if (setupChoice === 'auto') {
 					body = jsxs(
@@ -1164,6 +1168,7 @@ window.__ModuleLoader__.load({
 						{
 							children: [
 								jsx('p', { style: STYLE.hint, children: t('manualWaiting') }, 'manual-hint'),
+								...manualAssets.map(([key, text]) => jsx('p', { style: STYLE.hint, children: text }, key)),
 								jsx('p', { style: STYLE.hint, children: t('manualSources') }, 'manual-sources'),
 								assetsCard,
 								jsx(prim.Button, { variant: 'outline', onClick: () => { props.edit('setupChoice', 'auto'); props.save() }, children: t('switchToAuto') }, 'switch-auto'),
@@ -1244,7 +1249,6 @@ window.__ModuleLoader__.load({
 									style: STYLE.cardHead,
 									children: [
 										jsx('p', { style: STYLE.cardTitle, children: t(section.key) }, 'title'),
-										section.hintKey ? jsx('p', { style: STYLE.cardHint, children: t(section.hintKey) }, 'hint') : null,
 									],
 								},
 								'head',

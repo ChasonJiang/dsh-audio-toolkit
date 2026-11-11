@@ -69,6 +69,7 @@ export function missingAssets(config) {
   if (!isFile(config.tts.model)) missing.push('TTS 模型')
   if (!isFile(config.asr.model)) missing.push('ASR 模型')
   if (!isFile(config.asr.vadModel)) missing.push('VAD 模型')
+  if (!resolveFfmpeg(config)) missing.push('ffmpeg（音频转码）')
   return missing
 }
 
@@ -318,13 +319,20 @@ export const FFMPEG_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-ess
  */
 export async function installFfmpeg(config, options = {}) {
   const { log = () => {} } = options
-  if ((options.platform ?? process.platform) !== 'win32') return { installed: false, reason: 'platform' }
+  const platform = options.platform ?? process.platform
+  // The bundled URL is a Windows build; a caller-supplied URL (tests, mirrors)
+  // may target any platform.
+  if (platform !== 'win32' && !options.ffmpegUrl) return { installed: false, reason: 'platform' }
   const dest = dirname(config.audioCpp.ffmpegPath)
-  const target = join(dest, 'ffmpeg.exe')
+  const target = join(dest, platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
   if (isFile(target)) return { installed: false, reason: 'exists' }
   const buffer = await downloadBuffer(options.ffmpegUrl ?? FFMPEG_URL, { ...options, label: 'ffmpeg', phase: 'ffmpeg' })
-  extractZip(buffer, dest, { filter: (name) => /(^|\/)ffmpeg\.exe$/i.test(name), flatten: true })
-  if (!isFile(target)) throw new Error('ffmpeg 下载后没有找到 ffmpeg.exe')
+  const written = extractZip(buffer, dest, { filter: (name) => /(^|\/)ffmpeg(\.exe)?$/i.test(name), flatten: true })
+  if (!isFile(target)) {
+    const found = written.find((path) => isFile(path))
+    if (found) renameSync(found, target)
+  }
+  if (!isFile(target)) throw new Error('ffmpeg 下载后没有找到可执行文件')
   log(`[assets] ffmpeg 已安装到 ${dest}`)
   return { installed: true }
 }
@@ -335,9 +343,10 @@ async function ensureFfmpeg(config, options = {}) {
   if (resolveFfmpeg(config)) return
   if (!config.assets.derived) return
   if ((options.platform ?? process.platform) !== 'win32') {
-    log('[assets] 未内置 ffmpeg；请用系统包管理器安装（Windows 会自动下载）')
-    return
+    throw new Error('缺少 ffmpeg：请先用系统包管理器安装（Windows 会自动下载），或设置 ffmpegPath')
   }
+  // ffmpeg is required for transcoding: fail the install instead of leaving a
+  // half-working deployment.
   await installFfmpeg(config, options)
 }
 

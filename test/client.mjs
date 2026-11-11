@@ -307,6 +307,27 @@ async function main() {
     `${countType(autoTree, 'Input')} inputs`,
   )
 
+  // Manual mode: platform-specific instructions, no settings inputs.
+  const manualTree = component({
+    view: 'page',
+    t,
+    useAudioToolkitCard: (selector) =>
+      selector({ ...projection, setupChoice: { text: 'manual', overridden: false, invalid: false } }),
+    useAudioToolkitAssets: (selector) =>
+      selector({
+        ...assetsView,
+        status: { ...assetsView.status, ready: false, platform: 'win32', arch: 'x64', missing: ['audio.cpp 运行时'] },
+      }),
+    save: () => {},
+    discard: () => {},
+    edit: () => {},
+  })
+  check(
+    'manual mode shows platform steps and a way back',
+    countType(manualTree, 'Input') === 0 && collectText(manualTree).some((label) => label.includes('t:switchToAuto')),
+    `${countType(manualTree, 'Input')} inputs`,
+  )
+
   // Once assets are ready the normal form returns.
   check('form returns after the assets are ready', countType(tree, 'Input') > 0, `${countType(tree, 'Input')} inputs`)
 

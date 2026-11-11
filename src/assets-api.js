@@ -106,6 +106,7 @@ export function createAssetsApi({ getConfig, onBeforeDelete, log = () => {} }) {
         send(200, {
           toolkit: TOOLKIT_VERSION,
           platform: process.platform,
+          arch: process.arch,
           root: config.assets.root,
           ready: missing.length === 0,
           missing,

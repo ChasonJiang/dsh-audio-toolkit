@@ -364,10 +364,10 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
 其余配置项在安装完成后才出现（门控看的是资产状态，不是用户选没选）。
 
 - 引导页说明依赖是什么、要占多少空间，并给两个选择：**自动安装（推荐）** / **手动下载**；
-- 自动安装包含 **ffmpeg**（Windows 官方构建，约 110 MB）；Linux/macOS 请用系统包管理器安装，插件会回退到 PATH。
+- **ffmpeg 是必需依赖**：自动安装在 Windows 会一并下载官方构建（约 110 MB）；Linux/macOS 请先用系统包管理器安装，否则安装会报错。
 - 选 **自动安装**：进入安装页，点卡片里的 **「安装所缺依赖」** 才真正开始下载（切换方式不会触发下载）；
   代理默认关闭，勾选「使用代理下载」后代理输入框才可填写；
-- 选 **手动下载**：页面列出放置路径（`<root>/bin/audio.cpp`、`<root>/bin/models/…`）和 `assetsDir` 输入，
+- 选 **手动下载**：页面按当前平台/后端给出**具体指引**——release 包名（如 `audio-vX-bin-ubuntu-x64-cpu.tar.gz`，CUDA 需同版本 cudart；Linux/macOS 解压后 `chmod +x audiocpp_server`）、三个模型的目录、ffmpeg 位置（Windows 放 `bin/ffmpeg/ffmpeg.exe`，其它平台用包管理器），另有 `assetsDir` 输入，
   放好后点「刷新状态」；
 - 两种方式可随时切换：自动页有「改用手动下载」，手动页有「改用自动安装」；手动页还列出了下载来源。
 - 依赖就绪后引导页与安装控件都会消失：面板只剩一行 ✓ 已就绪 · 体积 · [删除依赖]，其余是配置项。
@@ -411,7 +411,7 @@ plugin_manager(action="remove_bundle", target="dsh-audio-toolkit")
 ```powershell
 # 在仓库根目录执行；node 需 >= 22.19
 node .\test\config.mjs    # 配置/表单契约/原生工具/队列/WAV 流式解码/静音回退（74 项）
-node .\test\client.mjs    # 浏览器半边无头渲染与暂存值契约（26 项）
+node .\test\client.mjs    # 浏览器半边无头渲染与暂存值契约（33 项）
 node .\test\http.mjs      # 超时/取消/分块透传（受限沙箱 14 项，含 MCP 端到端共 20 项）
 node .\test\assets.mjs    # 资产发现/下载/解压/续传/镜像回退（23 项，本地 HTTP，无需联网）
 node .\test\smoke.mjs --extended  # 独立 MCP 服务端到端，需 danger-full-access

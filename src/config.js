@@ -259,6 +259,23 @@ export function resolvePath(value, base = REPO_ROOT) {
   return isAbsolute(expanded) ? expanded : resolve(base, expanded)
 }
 
+/**
+ * Search PATH for an executable (Windows also tries .exe/.cmd/.bat).
+ * Used as the ffmpeg fallback when the configured path is absent.
+ */
+export function findOnPath(name) {
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat'] : ['']
+  const separator = process.platform === 'win32' ? ';' : ':'
+  for (const directory of (process.env.PATH ?? '').split(separator)) {
+    if (!directory) continue
+    for (const extension of exts) {
+      const candidate = join(directory, `${name}${extension}`)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return undefined
+}
+
 /** Report whether a path is an existing file. */
 export function isFile(path) {
   if (!path) return false
@@ -555,6 +572,12 @@ export function inspectInstall(config) {
     { key: 'ttsModel', label: `${config.tts.family} 模型`, path: config.tts.model, ok: isFile(config.tts.model) },
     { key: 'asrModel', label: `${config.asr.family} 模型`, path: config.asr.model, ok: isFile(config.asr.model) },
     { key: 'vadModel', label: 'VAD 模型', path: config.asr.vadModel, ok: isFile(config.asr.vadModel) },
+    {
+      key: 'ffmpeg',
+      label: 'ffmpeg（音频转码）',
+      path: config.audioCpp.ffmpegPath,
+      ok: isFile(config.audioCpp.ffmpegPath) || Boolean(findOnPath('ffmpeg')),
+    },
   ]
   if (config.tts.defaultVoiceRef) {
     checks.push({

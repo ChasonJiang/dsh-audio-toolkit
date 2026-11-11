@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { EngineError } from './engine.mjs'
 import { runCli } from './audiocpp.mjs'
+import { findOnPath } from '../src/config.js'
 import { readWavFormat, WavError } from '../src/wav.js'
 
 /** Target layout every consumer (engine + sentence timeline) accepts. */
@@ -38,20 +39,6 @@ export function isReadyWav(path) {
 }
 
 /** Search PATH for an executable named `name` (Windows also tries .exe/.cmd/.bat). */
-function findOnPath(name) {
-  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat'] : ['']
-  const separator = process.platform === 'win32' ? ';' : ':'
-  for (const directory of (process.env.PATH ?? '').split(separator)) {
-    if (!directory) continue
-    for (const extension of exts) {
-      const candidate = join(directory, `${name}${extension}`)
-      if (existsSync(candidate)) return candidate
-    }
-  }
-  return undefined
-}
-
-/** Whether a path is an existing directory. */
 function isDirectory(path) {
   try {
     return statSync(path).isDirectory()

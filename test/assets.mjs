@@ -243,11 +243,18 @@ async function main() {
   const config = freshConfig(assetsDir)
   const logs = []
   try {
-    check('fresh root reports the missing assets', missingAssets(config).length === 4, missingAssets(config).join(', '))
+    // ffmpeg may already be satisfied by PATH; the four files are always missing.
+    const initialMissing = missingAssets(config)
+    check(
+      'fresh root reports the missing assets',
+      ['audio.cpp 运行时', 'TTS 模型', 'ASR 模型', 'VAD 模型'].every((label) => initialMissing.includes(label)),
+      initialMissing.join(', '),
+    )
 
     const first = await ensureAssets(config, {
       apiUrl: `${base}/api/release`,
       modelBases: [base],
+      ffmpegUrl: `${base}/ffmpeg.zip`,
       platform: process.platform,
       backend,
       inProcess: true,
@@ -284,6 +291,31 @@ async function main() {
     const second = await ensureAssets(freshConfig(assetsDir), { platform: process.platform, backend, inProcess: true })
     check('second call is a no-op', second.provisioned === false)
 
+    // ffmpeg is required: a failed download must fail the install with a reason.
+    {
+      const saved = { PATH: process.env.PATH, Path: process.env.Path }
+      process.env.PATH = ''
+      process.env.Path = ''
+      let failed
+      try {
+        const tolerantDir = join(SCRATCH, 'ffmpeg-fail')
+        await ensureAssets(resolveConfig({ assetsDir: tolerantDir, assetsAutoDownload: true }), {
+          apiUrl: `${base}/api/release`,
+          modelBases: [base],
+          ffmpegUrl: `${base}/nope.zip`,
+          platform: process.platform,
+          backend,
+          inProcess: true,
+        })
+      } catch (error) {
+        failed = error.message
+      } finally {
+        process.env.PATH = saved.PATH
+        process.env.Path = saved.Path
+      }
+      check('a failed ffmpeg download fails the install', String(failed).includes('ffmpeg'), failed)
+    }
+
     // 4. resume: a .part file must continue instead of restarting
     const resumeDir = join(SCRATCH, 'resume')
     const resumeConfig = freshConfig(resumeDir)
@@ -293,6 +325,7 @@ async function main() {
     await ensureAssets(resumeConfig, {
       apiUrl: `${base}/api/release`,
       modelBases: [base],
+      ffmpegUrl: `${base}/ffmpeg.zip`,
       platform: process.platform,
       backend,
       inProcess: true,
@@ -304,6 +337,7 @@ async function main() {
     await ensureAssets(freshConfig(fallbackDir), {
       apiUrl: `${base}/api/release`,
       modelBases: [`${base}/broken`, base],
+      ffmpegUrl: `${base}/ffmpeg.zip`,
       platform: process.platform,
       backend,
       inProcess: true,
