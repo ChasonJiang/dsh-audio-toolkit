@@ -342,7 +342,9 @@ async function ensureFfmpeg(config, options = {}) {
   const { log = () => {} } = options
   if (resolveFfmpeg(config)) return
   if (!config.assets.derived) return
-  if ((options.platform ?? process.platform) !== 'win32') {
+  // The bundled URL is a Windows build; a caller-supplied URL (tests/mirrors)
+  // works on any platform, so only the default download path is Windows-only.
+  if ((options.platform ?? process.platform) !== 'win32' && !options.ffmpegUrl) {
     throw new Error('缺少 ffmpeg：请先用系统包管理器安装（Windows 会自动下载），或设置 ffmpegPath')
   }
   // ffmpeg is required for transcoding: fail the install instead of leaving a

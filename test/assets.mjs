@@ -288,6 +288,20 @@ async function main() {
     const again = await installFfmpeg(ffmpegCfg, { ffmpegUrl: `${base}/ffmpeg.zip`, platform: 'win32' })
     check('ffmpeg install is a no-op when present', again.installed === false && again.reason === 'exists', JSON.stringify(again))
 
+    // Linux uses `ffmpeg` (no .exe) and only accepts a custom URL, not the
+    // bundled Windows build. This mirrors what CI exercises on ubuntu.
+    const linuxDir = join(SCRATCH, 'ffmpeg-linux')
+    const linuxCfg = resolveConfig({
+      assetsDir: linuxDir,
+      ffmpegPath: join(linuxDir, 'bin', 'ffmpeg', 'ffmpeg'),
+    })
+    const linuxInstall = await installFfmpeg(linuxCfg, { ffmpegUrl: `${base}/ffmpeg.zip`, platform: 'linux' })
+    check(
+      'ffmpeg fixture installs on linux',
+      linuxInstall.installed === true && existsSync(join(linuxDir, 'bin', 'ffmpeg', 'ffmpeg')),
+      JSON.stringify(linuxInstall),
+    )
+
     const second = await ensureAssets(freshConfig(assetsDir), { platform: process.platform, backend, inProcess: true })
     check('second call is a no-op', second.provisioned === false)
 
