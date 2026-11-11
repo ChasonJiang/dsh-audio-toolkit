@@ -62,7 +62,7 @@ export async function waitForEngine(baseUrl, waitMs = 4000) {
 export function engineDownMessage(baseUrl) {
   return (
     `audio.cpp 引擎未运行（${baseUrl}）。` +
-    '请在 DSH 侧栏「插件」页打开 dsh-audio-toolkit，把「引擎启用」设为 true 后保存（或重新启用插件）以启动引擎；' +
+    '请在 DSH 侧栏「插件」页打开 dsh-audio-toolkit，点「启动引擎」（或重新启用插件）以启动引擎；' +
     '启动日志在 dsh-audio-toolkit/state/engine.log。'
   )
 }

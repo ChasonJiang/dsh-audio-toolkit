@@ -167,12 +167,9 @@ export function requireInstall(cfg, task) {
 /** Ensure the engine answers; give the plugin a few seconds to finish starting it. */
 async function requireEngine(cfg) {
   const health = await waitForEngine(cfg.engine.url)
+  // The running process is the single source of truth: `engineEnabled` is only
+  // the panel's request state and may be false after boot auto-start.
   if (!health) throw new EngineError(engineDownMessage(cfg.engine.url), { url: cfg.engine.url })
-  if (!cfg.engine.enabled) {
-    throw new EngineError(
-      `引擎可达但配置为禁用（engineEnabled=false）。请在插件面板启用，或忽略此提示（引擎可能由旧配置启动）。`,
-    )
-  }
   return health
 }
 

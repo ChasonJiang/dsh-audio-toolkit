@@ -15,6 +15,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { assetsReady, cancelInstall, deleteAssets, installSnapshot, missingAssets, startInstall } from '../mcp/assets.mjs'
+import { engineHealth } from '../mcp/engine.mjs'
 import { TOOLKIT_VERSION } from './config.js'
 
 /**
@@ -77,7 +78,7 @@ function readBody(req) {
 /**
  * @param {{getConfig: () => ReturnType<typeof import('./config.js').resolveConfig>, log?: (message: string) => void}} options
  */
-export function createAssetsApi({ getConfig, onBeforeDelete, log = () => {} }) {
+export function createAssetsApi({ getConfig, onBeforeDelete, onEngineStart, onEngineStop, log = () => {} }) {
   const server = createServer(async (req, res) => {
     const origin = String(req.headers.origin ?? '')
     const sameOrigin = !origin || ALLOWED_ORIGIN.test(origin)
@@ -103,6 +104,7 @@ export function createAssetsApi({ getConfig, onBeforeDelete, log = () => {} }) {
         const config = getConfig()
         const missing = missingAssets(config)
         const install = installSnapshot()
+        const health = await engineHealth(config.engine.url, 500)
         send(200, {
           toolkit: TOOLKIT_VERSION,
           platform: process.platform,
@@ -111,6 +113,7 @@ export function createAssetsApi({ getConfig, onBeforeDelete, log = () => {} }) {
           ready: missing.length === 0,
           missing,
           auto_download: config.assets.autoDownload,
+          engine: { enabled: config.engine.enabled, running: Boolean(health) },
           proxy: config.assets.proxy || '',
           sizes: {
             release: dirSize(config.audioCpp.binDir),
@@ -122,9 +125,24 @@ export function createAssetsApi({ getConfig, onBeforeDelete, log = () => {} }) {
       }
 
       // Mutating calls: only the local DSH UI may drive them.
-      if (req.method === 'POST' && (url.pathname === '/install' || url.pathname === '/cancel' || url.pathname === '/delete')) {
+      if (req.method === 'POST' && (url.pathname === '/install' || url.pathname === '/cancel' || url.pathname === '/delete' || url.pathname === '/engine/start' || url.pathname === '/engine/stop')) {
         if (!sameOrigin) {
           send(403, { error: 'forbidden origin' })
+          return
+        }
+        if (url.pathname === '/engine/start' || url.pathname === '/engine/stop') {
+          const start = url.pathname === '/engine/start'
+          const handler = start ? onEngineStart : onEngineStop
+          if (typeof handler !== 'function') {
+            send(501, { error: start ? '引擎启动接口不可用' : '引擎停止接口不可用' })
+            return
+          }
+          try {
+            await handler()
+            send(200, start ? { started: true } : { stopped: true })
+          } catch (error) {
+            send(500, { error: error instanceof Error ? error.message : String(error) })
+          }
           return
         }
         if (url.pathname === '/cancel') {

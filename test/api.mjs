@@ -107,6 +107,47 @@ async function main() {
       await deletable.close()
     }
 
+    // Engine endpoints: the panel buttons must work even when the saved
+    // engineEnabled flag did not change (e.g. after boot auto-start).
+    {
+      let started = 0
+      let stopped = 0
+      const engineApi = createAssetsApi({
+        getConfig: () => resolveConfig({ assetsDir: join(SCRATCH, 'engine-assets') }),
+        onEngineStart: async () => {
+          started++
+        },
+        onEngineStop: async () => {
+          stopped++
+        },
+      })
+      const enginePort = await engineApi.start(port + 30)
+      try {
+        const startResponse = await fetch(`http://127.0.0.1:${enginePort}/engine/start`, {
+          method: 'POST',
+          headers: { origin: 'dsh-app://app', 'content-type': 'application/json' },
+          body: '{}',
+        })
+        const stopResponse = await fetch(`http://127.0.0.1:${enginePort}/engine/stop`, {
+          method: 'POST',
+          headers: { origin: 'http://127.0.0.1:8795', 'content-type': 'application/json' },
+          body: '{}',
+        })
+        const foreign = await fetch(`http://127.0.0.1:${enginePort}/engine/stop`, {
+          method: 'POST',
+          headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
+          body: '{}',
+        })
+        check(
+          'engine start/stop endpoints drive the host',
+          startResponse.status === 200 && stopResponse.status === 200 && started === 1 && stopped === 1 && foreign.status === 403,
+          `${startResponse.status}/${stopResponse.status}/${foreign.status}`,
+        )
+      } finally {
+        await engineApi.close()
+      }
+    }
+
     const missing = await fetch(`${base}/nope`)
     check('unknown routes 404', missing.status === 404, String(missing.status))
   } finally {

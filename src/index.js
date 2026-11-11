@@ -380,6 +380,8 @@ function workspaceOf(ctx, exec) {
  * @param {import('@deepseek-ai/cordis').Context} ctx
  * @param {Record<string, any>} config
  */
+let activated = false
+
 export function apply(ctx, config) {
   try {
     const resolved = publish(config)
@@ -397,6 +399,8 @@ export function apply(ctx, config) {
       getConfig: engineConfig,
       // Windows keeps DLLs locked while the engine runs; stop it before deleting.
       onBeforeDelete: () => engine.stop(),
+      onEngineStart: () => engine.start(),
+      onEngineStop: () => engine.stop(),
       log,
     })
     assetsApi
@@ -465,7 +469,11 @@ export function apply(ctx, config) {
       hostLogWarn(`[dsh-audio-toolkit] 无法注册引擎生命周期：${error instanceof Error ? error.message : String(error)}`)
     }
 
-    if (resolved.engine.enabled && resolved.engine.autoStart) {
+    // First activation = DSH start: honour "start with DSH" even if the panel's
+    // stop button left engineEnabled=false. Later activations (config saves)
+    // only follow the explicit flag, so Stop stays stopped for the session.
+    const bootStart = activated ? resolved.engine.enabled : resolved.engine.autoStart || resolved.engine.enabled
+    if (bootStart) {
       // Do not block plugin activation: the server is lazy, and tool calls that
       // arrive early retry briefly before reporting "not started".
       engine
@@ -492,7 +500,8 @@ export function apply(ctx, config) {
       )
     }
 
-    let previousRaw = snapshotRaw(config)
+    activated = true
+  let previousRaw = snapshotRaw(config)
     let previousResolved = resolved
 
     // A volatile panel edit does not remount the plugin: react to it here.

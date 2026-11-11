@@ -446,6 +446,8 @@ window.__ModuleLoader__.load({
 				this.toggle = this.toggle.bind(this)
 				this.choose = this.choose.bind(this)
 				this.remove = this.remove.bind(this)
+				this.startEngine = this.startEngine.bind(this)
+				this.stopEngine = this.stopEngine.bind(this)
 				this.setPort = this.setPort.bind(this)
 				this.view = {
 					...this.view,
@@ -455,6 +457,8 @@ window.__ModuleLoader__.load({
 					toggle: this.toggle,
 					choose: this.choose,
 					remove: this.remove,
+					startEngine: this.startEngine,
+					stopEngine: this.stopEngine,
 					setPort: this.setPort,
 				}
 			}
@@ -538,6 +542,14 @@ window.__ModuleLoader__.load({
 
 			install() {
 				return this.post('/install', { ...this.view.options })
+			}
+
+			startEngine() {
+				return this.post('/engine/start', {})
+			}
+
+			stopEngine() {
+				return this.post('/engine/stop', {})
 			}
 
 			async remove(question) {
@@ -1066,7 +1078,8 @@ window.__ModuleLoader__.load({
 					? props.useAudioToolkitCard((snapshot) => snapshot)
 					: { available: false, writable: false, dirty: false, invalid: false, saving: false, failed: false }
 			const engineEnabledText = String(state.engineEnabled?.text ?? '').toLowerCase()
-			const engineOn = engineEnabledText === '' ? true : engineEnabledText === 'true'
+			// Prefer the live process state from the assets API; fall back to the saved
+			// flag when the service is unavailable.
 
 			// Asset status/progress come from the host's loopback service; the hook
 			// only polls while the card is mounted.
@@ -1079,6 +1092,12 @@ window.__ModuleLoader__.load({
 			if (assets && typeof assets.setPort === 'function') assets.setPort(state.assetsApiPort?.text)
 			const setupChoice = String(state.setupChoice?.text ?? '')
 			const assetsCard = jsx(AssetsCard, { t, state, assets, manual: setupChoice === 'manual', form: props }, 'assets')
+
+			const engineOn = assets?.status?.engine
+				? Boolean(assets.status.engine.running)
+				: engineEnabledText === ''
+					? true
+					: engineEnabledText === 'true'
 
 			const header = jsxs(
 				'div',
@@ -1224,6 +1243,7 @@ window.__ModuleLoader__.load({
 								onClick: () => {
 									props.edit('engineEnabled', 'true')
 									props.save()
+									if (assets && typeof assets.startEngine === 'function') assets.startEngine()
 								},
 								children: t('startEngine'),
 							},
@@ -1237,6 +1257,7 @@ window.__ModuleLoader__.load({
 								onClick: () => {
 									props.edit('engineEnabled', 'false')
 									props.save()
+									if (assets && typeof assets.stopEngine === 'function') assets.stopEngine()
 								},
 								children: t('stopEngine'),
 							},
