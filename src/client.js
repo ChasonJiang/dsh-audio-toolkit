@@ -267,6 +267,8 @@ window.__ModuleLoader__.load({
 					{ field: 'engineAutoStart', label: '随 DSH 自动启动', hint: 'DSH 启动/插件启用时自动拉起引擎（懒加载，首次请求才占显存）。', kind: 'boolean', fallback: true },
 					{ field: 'engineHost', label: '监听地址', hint: '保持 127.0.0.1。', kind: 'text' },
 					{ field: 'enginePort', label: '端口', hint: '被占用时改这里并保存（引擎会自动重启）。', kind: 'number' },
+					{ field: 'engineIdleUnloadSeconds', label: '闲时卸载', hint: '空闲多少秒后卸载常驻模型（默认 300 = 5 分钟；0 = 不卸载，下次请求懒加载）。', kind: 'number', unit: 's' },
+					{ field: 'engineMaxLoadedModels', label: '最多常驻模型', hint: '0 = 不限；超出时按 LRU 卸载空闲模型。', kind: 'number', unit: '个' },
 				],
 			},
 			{

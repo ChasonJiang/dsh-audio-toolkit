@@ -170,6 +170,13 @@ async function main() {
       engineConfig.models[1].family === 'sense_asr',
   )
   check('engine config is lazy', engineConfig.lazy_load === true && engineConfig.max_loaded_models === 0)
+  check('idle unload defaults to 5 minutes', engineConfig.idle_unload_ms === 300000, String(engineConfig.idle_unload_ms))
+  const tunedEngine = toEngineConfig(resolveConfig({ engineIdleUnloadSeconds: 90, engineMaxLoadedModels: 1 }))
+  check(
+    'idle unload and model cap reach the engine config',
+    tunedEngine.idle_unload_ms === 90000 && tunedEngine.max_loaded_models === 1,
+    `${tunedEngine.idle_unload_ms}/${tunedEngine.max_loaded_models}`,
+  )
   check(
     'asr default chunk mode is fixed',
     engineConfig.models[1].default_request_options.audio_chunk_mode === 'fixed',
@@ -224,7 +231,7 @@ async function main() {
         const flat = paths.filter((path) => !path.includes('.'))
         check(
           'panel form exposes flat fields',
-          form !== undefined && flat.length === 38,
+          form !== undefined && flat.length === 40,
           `${flat.length} top-level fields`,
         )
         check('panel form keeps them multi-segment free', paths.length === flat.length, paths.filter((p) => p.includes('.')).slice(0, 3).join(', '))

@@ -49,6 +49,8 @@ const RESTART_KEYS = [
   'engineHost',
   'assetsDir',
   'enginePort',
+  'engineIdleUnloadSeconds',
+  'engineMaxLoadedModels',
   'backend',
   'device',
   'threads',

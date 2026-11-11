@@ -145,6 +145,14 @@ function buildConfig() {
       .description('DSH 启动时自动拉起引擎（懒加载权重，首次请求才占显存）。')
       .volatile(),
     engineHost: Schema.string().default('127.0.0.1').description('引擎监听地址，保持 127.0.0.1 即可。').volatile(),
+    engineIdleUnloadSeconds: Schema.natural()
+      .default(300)
+      .description('空闲多少秒后卸载常驻模型（默认 300 = 5 分钟；0 = 不卸载；下次请求会懒加载）。')
+      .volatile(),
+    engineMaxLoadedModels: Schema.natural()
+      .default(0)
+      .description('最多常驻几个模型（0 = 不限；超出时按 LRU 卸载空闲模型）。')
+      .volatile(),
     enginePort: Schema.natural().min(1).max(65535).default(8788).description('引擎端口；被占用时改这里。').volatile(),
 
     setupChoice: Schema.union(['', 'auto', 'manual'])
@@ -274,6 +282,8 @@ const CONFIG_KEYS = [
   'engineAutoStart',
   'engineHost',
   'enginePort',
+  'engineIdleUnloadSeconds',
+  'engineMaxLoadedModels',
   'setupChoice',
   'assetsDir',
   'assetsAutoDownload',

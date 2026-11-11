@@ -123,6 +123,8 @@ export const DEFAULT_CONFIG = {
   engineAutoStart: true,
   engineHost: '127.0.0.1',
   enginePort: 8788,
+  engineIdleUnloadSeconds: 300,
+  engineMaxLoadedModels: 0,
 
   // Empty path fields mean "derive from assetsDir"; the panel shows 自动.
   setupChoice: '',
@@ -402,6 +404,8 @@ export function resolveConfig(raw = {}, options = {}) {
     },
     engine: {
       enabled: bool(get('engineEnabled'), DEFAULT_CONFIG.engineEnabled),
+    idleUnloadMs: Math.max(int(get('engineIdleUnloadSeconds'), DEFAULT_CONFIG.engineIdleUnloadSeconds, { min: 0 }), 0) * 1000,
+    maxLoadedModels: Math.max(int(get('engineMaxLoadedModels'), 0, { min: 0 }), 0),
       autoStart: bool(get('engineAutoStart'), DEFAULT_CONFIG.engineAutoStart),
       host,
       port,
@@ -467,7 +471,8 @@ export function toEngineConfig(config) {
     device: config.audioCpp.device,
     ...(config.audioCpp.threads > 0 ? { threads: config.audioCpp.threads } : {}),
     lazy_load: true,
-    max_loaded_models: 0,
+    max_loaded_models: config.engine.maxLoadedModels,
+    idle_unload_ms: config.engine.idleUnloadMs,
     models: [
       {
         id: config.tts.id,

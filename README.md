@@ -101,7 +101,7 @@ npm run test:smoke  # end-to-end, needs the release, models and a GPU
 npm run docs:contract  # regenerate the tool contract in docs/GUIDE.zh.md
 ```
 
-The suite currently covers config 74, client 33, http 15, api 9 and assets 37 checks; CI runs
+The suite currently covers config 75, client 33, http 15, api 10 and assets 37 checks; CI runs
 it on Linux and Windows with Node 22 and 24, without binaries, models or a GPU
 (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 

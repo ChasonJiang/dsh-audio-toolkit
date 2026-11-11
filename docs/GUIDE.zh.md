@@ -92,6 +92,8 @@ bin/
 | `engineEnabled` | `true` | 引擎总开关；面板不再显示，由「启动引擎 / 停止引擎」按钮写入 |
 | `engineAutoStart` | `true` | DSH 启动时自动拉起引擎（即使上次用「停止引擎」停过；停止只影响当前会话，权重仍懒加载） |
 | `engineHost` / `enginePort` | `127.0.0.1` / `8788` | 引擎监听地址与端口（被占用就改端口） |
+| `engineIdleUnloadSeconds` | `300` | 空闲多少秒后卸载常驻模型（默认 5 分钟；0 = 不卸载；下次请求懒加载） |
+| `engineMaxLoadedModels` | `0` | 最多常驻几个模型（0 = 不限；超出时按 LRU 卸载空闲模型） |
 | `mcpServerName` | `audio` | 独立 MCP 服务的 `serverInfo.name`；原生工具名固定为 `audio_toolkit_*` |
 | `toolCallTimeoutMs` | `900000` | 单次引擎请求的超时（覆盖响应体读取） |
 | `maxConcurrentCalls` | `2` | 并发上限：异步任务队列 + 原生 TTS/ASR 工具都受它约束 |

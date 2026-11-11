@@ -237,7 +237,7 @@ async function main() {
   check('page view renders a form', tree?.type === 'SettingsForm')
   check('boolean fields use switches', switches.length === 2, `${switches.length} switches`)
   check('enum fields use segmented controls', segments.length === 3, `${segments.length} segmented controls`)
-  check('text/number/list fields use inputs', inputs.length === 21, `${inputs.length} inputs`)
+  check('text/number/list fields use inputs', inputs.length === 23, `${inputs.length} inputs`)
   check('no plain SettingsValueField rows remain', !countType(tree, 'SettingsValueField'))
   check('status strip tags render', tags.length >= 8, `${tags.length} tags`)
   check(
@@ -333,7 +333,7 @@ async function main() {
 
   // 4. staged values must match the host Config types (DSH writes them verbatim)
   const specOf = (field) => formSpecs.find((spec) => spec.field === field)
-  check('one spec per editable Config field', formSpecs.length === 31, `${formSpecs.length} specs`)
+  check('one spec per editable Config field', formSpecs.length === 33, `${formSpecs.length} specs`)
   for (const field of ['extraArgs', 'ttsSessionOptions', 'asrSessionOptions']) {
     // The host declares these as `Schema.string()`; an array here would be
     // persisted and then fail schema validation on the next load.
