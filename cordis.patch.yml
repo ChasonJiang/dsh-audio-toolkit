@@ -1,0 +1,48 @@
+# dsh-audio-toolkit bundle layer（v0.3：原生工具 + 常驻引擎）
+#
+# 一行插件配置即可：
+#   audio-toolkit —— 宿主插件：
+#       · 声明插件面板配置（扁平字段，面板里可改）
+#       · 自建并托管常驻 audiocpp_server（跟随 DSH 生命周期，
+#         面板里 engineEnabled / 启动引擎 / 停止引擎 手动启停）
+#       · 注册 7 个原生工具：audio_toolkit_tts_speak / audio_toolkit_asr_transcribe /
+#         audio_toolkit_tts_list_voices / audio_toolkit_engine_status /
+#         audio_toolkit_submit_tasks / audio_toolkit_job_status / audio_toolkit_cancel_jobs
+#       · 把解析后的配置写到 state/config.json
+#
+# 工具走宿主 registry 而不是 @deepseek-ai/dsh-mcp-client：MCP 桥会把工具统一命名成
+# mcp__<serverName>__<tool>，无法得到上面这组精确名字。仓库里的 mcp/server.mjs 仍作为
+# 可独立运行的 MCP 服务保留（给外部 MCP 客户端用），与宿主工具共用同一套 handler。
+#
+# 换目录 / 换机器：把 audio.cpp release 放在 <仓库>/bin/audio.cpp、模型放在
+# <仓库>/bin/models 即可（也可在面板里改 binDir/modelsDir/ffmpegPath）。
+# 这里不写任何绝对路径，避免跟具体机器绑定。
+
+- insert:
+    - id: audio-toolkit
+      name: 'dsh-audio-toolkit'
+      config:
+        # —— 引擎：常驻进程 + 面板手动启停 ——
+        engineEnabled: true
+        engineAutoStart: true
+        enginePort: 8788
+
+        # —— audio.cpp 运行时 ——
+        backend: cuda
+        device: 0
+        threads: 0
+
+        # —— TTS：IndexTTS2.5 fp16 ——
+        # 模型路径留空 = <modelsDir>/IndexTTS2.5-GGUF/index-tts2_5-f16.gguf，
+        # 默认值由 binDir/modelsDir 推导，换目录/换机器不用改这里。
+        ttsFamily: index_tts2
+        ttsLanguage: auto
+
+        # —— ASR：SenseVoice ——
+        asrFamily: sense_asr
+        asrChunkMode: fixed
+        asrLanguage: auto
+        asrEnableItn: true
+
+        # —— 输出：当前会话工作目录下的文件夹名 ——
+        outputFolder: audio_toolkit_outputs

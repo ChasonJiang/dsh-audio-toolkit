@@ -1,0 +1,16 @@
+# audio.cpp runtime, downloaded models and generated audio stay out of version control
+bin/
+out/
+audio_toolkit_outputs/
+voices/
+audio_samples/
+node_modules/
+state/
+.DS_Store
+Thumbs.db
+
+__pycache__/
+*.log
+
+# the audio.cpp upstream checkout has its own .git
+audio.cpp/

@@ -1,0 +1,63 @@
+{
+  "name": "dsh-audio-toolkit",
+  "version": "0.7.0",
+  "author": "dsh-audio-toolkit contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/dsh-audio-toolkit.git"
+  },
+  "homepage": "https://github.com/OWNER/dsh-audio-toolkit#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/dsh-audio-toolkit/issues"
+  },
+  "description": "DeepSeek Harness plugin bundle: resident audio.cpp engine with IndexTTS2.5 (fp16) TTS and SenseVoice ASR, exposed as MCP tools and configured from the DSH plugin panel",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node scripts/check_syntax.mjs && node test/config.mjs && node test/client.mjs && node test/http.mjs && node scripts/tool_contract.mjs --check",
+    "test:smoke": "node test/smoke.mjs",
+    "docs:contract": "node scripts/tool_contract.mjs --write",
+    "check:syntax": "node scripts/check_syntax.mjs"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "mcp",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ],
+      "platform": "web"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "mcp",
+    "tts",
+    "asr",
+    "audio.cpp",
+    "indextts",
+    "sensevoice"
+  ]
+}
