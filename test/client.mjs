@@ -235,9 +235,9 @@ async function main() {
     if (node.type === 'Tag') tags.push(node)
   })
   check('page view renders a form', tree?.type === 'SettingsForm')
-  check('boolean fields use switches', switches.length === 4, `${switches.length} switches`)
+  check('boolean fields use switches', switches.length === 2, `${switches.length} switches`)
   check('enum fields use segmented controls', segments.length === 3, `${segments.length} segmented controls`)
-  check('text/number/list fields use inputs', inputs.length === 22, `${inputs.length} inputs`)
+  check('text/number/list fields use inputs', inputs.length === 21, `${inputs.length} inputs`)
   check('no plain SettingsValueField rows remain', !countType(tree, 'SettingsValueField'))
   check('status strip tags render', tags.length >= 8, `${tags.length} tags`)
   check(

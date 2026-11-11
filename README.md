@@ -71,7 +71,7 @@ existing install is reused as-is.
 
 Proxy, mirror and reuse notes:
 
-- proxy is **opt-in**: `assetsProxyEnabled` must be on before `assetsProxy` is used;
+- proxy is **opt-in** and configured only in the first-run guide: `assetsProxyEnabled` must be on\n  before `assetsProxy` is used (the fields are not shown in the settings list);
 - Hugging Face is often unreachable from mainland China — the downloader falls back to
   `hf-mirror.com`, or set `HF_ENDPOINT` yourself;
 - already have the assets? point `assetsDir` at that directory and press **Refresh**.

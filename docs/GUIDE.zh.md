@@ -97,8 +97,8 @@ bin/
 | `maxConcurrentCalls` | `2` | 并发上限：异步任务队列 + 原生 TTS/ASR 工具都受它约束 |
 | `setupChoice` | 空 | 首次设置的选择：空 = 未选（面板只显示安装引导）/ `auto` / `manual` |
 | `assetsDir` | 自动 | 运行时资产根。留空 = 自动发现：包内 `bin/`（`link:`/开发）→ `DSH_AUDIO_TOOLKIT_ASSETS` → `~/.dsh/audio-toolkit`（`github:`/npm 安装的下载目标） |
-| `assetsAutoDownload` | `false` | 打开后引擎启动时自动补齐依赖；默认关闭，由面板「运行时依赖 → 安装依赖」手动确认（约 6 GB） |
-| `assetsProxyEnabled` / `assetsProxy` | `false` / 空 | 下载依赖时才用代理：先勾选「使用代理下载」，地址才生效；关闭时代理值被忽略 |
+| `assetsAutoDownload` | `false` | 引擎启动时自动补齐依赖（无人值守用）；面板不显示，仅在安装引导/配置文件中设置 |
+| `assetsProxyEnabled` / `assetsProxy` | `false` / 空 | 下载代理；面板不显示，只在安装引导的自动安装页勾选/填写，未启用时代理值被忽略 |
 | `assetsApiPort` | `8789` | 面板「运行时依赖」用的本地服务端口（只绑 127.0.0.1，被占用时自动顺延） |
 | `binDir` / `cliPath` / `modelsDir` | 自动 | 分别默认 `<assetsDir>/bin/audio.cpp`、`<binDir>/audiocpp_cli.exe`、`<assetsDir>/bin/models` |
 | `ffmpegPath` | 自动 | 默认 `<assetsDir>/bin/ffmpeg/ffmpeg`（Windows 为 `ffmpeg.exe`）；也可填所在目录；找不到时回退 PATH |
@@ -382,7 +382,7 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
 - 按钮：**安装所缺依赖** / **取消安装** / **刷新状态**；进行中显示进度条、当前文件、百分比与速度对应的字节数；
 - 默认写入 `~/.dsh/audio-toolkit`。已有资产时把 `assetsDir` 指过去即可复用（`link:` 安装自动用仓库内 `bin/`）。
 
-面板不再显示这些字段（仍可通过配置文件或 MCP 覆盖）：binDir、cliPath、modelsDir、ttsModel、asrModel、asrVadModel、ffmpegPath、assetsApiPort；engineEnabled 也隐藏了，由面板上方的「启动引擎 / 停止引擎」按钮直接控制。
+面板不再显示这些字段（仍可通过配置文件或 MCP 覆盖）：binDir、cliPath、modelsDir、ttsModel、asrModel、asrVadModel、ffmpegPath、assetsApiPort；engineEnabled 也隐藏了，由面板上方的「启动引擎 / 停止引擎」按钮直接控制；`assetsAutoDownload`、`assetsProxyEnabled`、`assetsProxy` 只在安装引导里配置。
 
 依赖服务只绑 `127.0.0.1`（端口 `assetsApiPort`，默认 8789），写操作校验 Origin，只允许本机页面触发。
 面板关闭后不再轮询。也可以打开 `assetsAutoDownload`，让引擎启动时自动补齐（无人值守部署用）。

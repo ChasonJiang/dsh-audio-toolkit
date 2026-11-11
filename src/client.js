@@ -281,9 +281,6 @@ window.__ModuleLoader__.load({
 				key: 'sectionAudioCpp',
 				fields: [
 					{ field: 'assetsDir', label: '资产根目录', hint: '存放 bin/audio.cpp、bin/models 与 bin/ffmpeg。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → ~/.dsh/audio-toolkit。', kind: 'text', placeholder: '自动' },
-					{ field: 'assetsAutoDownload', label: '自动下载资产', hint: '打开后引擎启动时自动补齐依赖（含 ffmpeg，约 6.1 GB）；默认关闭，用上方「安装依赖」手动确认。', kind: 'boolean', fallback: false },
-					{ field: 'assetsProxyEnabled', label: '使用下载代理', hint: '默认关闭；打开后才会用下面的地址下载依赖。', kind: 'boolean', fallback: false },
-					{ field: 'assetsProxy', label: '下载代理', hint: '仅勾选「使用下载代理」时生效；留空则回退环境变量 HTTPS_PROXY / HTTP_PROXY。国内直连 GitHub/HF 不通时填本地代理，例如 http://127.0.0.1:7890。', kind: 'text', placeholder: 'http://127.0.0.1:7890' },
 					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启；须与安装依赖时选择的后端一致（例如装的是 CUDA 版就选 cuda）。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
 					{ field: 'device', label: 'GPU 序号', hint: '多卡时选择设备。', kind: 'number' },
 					{ field: 'threads', label: '线程数', hint: '0 = 自动。', kind: 'number' },
@@ -336,6 +333,10 @@ window.__ModuleLoader__.load({
 			// buttons write engineEnabled.
 			specs.push(textSpec('setupChoice'))
 			specs.push(booleanSpec('engineEnabled'))
+			// Only edited from the first-run guide (auto install page).
+			specs.push(booleanSpec('assetsAutoDownload'))
+			specs.push(booleanSpec('assetsProxyEnabled'))
+			specs.push(textSpec('assetsProxy'))
 			return specs
 		}
 		//#endregion
@@ -356,6 +357,9 @@ window.__ModuleLoader__.load({
 				}
 				projected.setupChoice = this.form.field('setupChoice')
 				projected.engineEnabled = this.form.field('engineEnabled')
+				projected.assetsAutoDownload = this.form.field('assetsAutoDownload')
+				projected.assetsProxyEnabled = this.form.field('assetsProxyEnabled')
+				projected.assetsProxy = this.form.field('assetsProxy')
 				return projected
 			}
 
