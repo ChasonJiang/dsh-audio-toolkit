@@ -280,6 +280,34 @@ async function main() {
   )
   check('no config rows before choosing', countType(setupTree, 'Input') === 0, `${countType(setupTree, 'Input')} inputs`)
 
+  // Choosing "auto" starts the install but must NOT reveal the rest of the form.
+  const autoTree = component({
+    view: 'page',
+    t,
+    useAudioToolkitCard: (selector) =>
+      selector({ ...projection, setupChoice: { text: 'auto', overridden: false, invalid: false } }),
+    useAudioToolkitAssets: (selector) =>
+      selector({
+        ...assetsView,
+        status: { ...assetsView.status, ready: false, missing: ['audio.cpp 运行时'], sizes: { release: 0, models: 0 } },
+        install: () => {},
+      }),
+    save: () => {},
+    discard: () => {},
+    edit: () => {},
+  })
+  const autoLabels = collectText(autoTree)
+  check(
+    'auto mode still hides the form',
+    countType(autoTree, 'Input') === 0 &&
+      autoLabels.some((label) => label.includes('t:assetsInstallAll')) &&
+      !autoLabels.some((label) => label.includes('t:setupAuto')),
+    `${countType(autoTree, 'Input')} inputs`,
+  )
+
+  // Once assets are ready the normal form returns.
+  check('form returns after the assets are ready', countType(tree, 'Input') > 0, `${countType(tree, 'Input')} inputs`)
+
   // 4. staged values must match the host Config types (DSH writes them verbatim)
   const specOf = (field) => formSpecs.find((spec) => spec.field === field)
   check('one spec per editable Config field', formSpecs.length === 37, `${formSpecs.length} specs`)

@@ -68,7 +68,10 @@ window.__ModuleLoader__.load({
 			setupProxyFilled: '已配置代理，自动安装会走它。',
 			setupAuto: '自动安装（推荐）',
 			setupManual: '手动下载',
-			setupLater: '选择后即可看到其他配置项；依赖未装完时引擎无法启动。',
+			setupLater: '安装完成后才会显示其他配置项；依赖未就绪时引擎无法启动。',
+			autoRunning: '正在准备运行时依赖：下方显示实时进度，装完会自动出现其余配置项。',
+			setupProxyOptional: '网络需要代理时才填；直连 GitHub / Hugging Face 不通时安装会失败。',
+			manualWaiting: '把依赖放到下面这些位置后点「刷新状态」，就绪后会自动出现其余配置项。',
 			manualTitle: '手动放置依赖',
 			manualBody: '把文件放到下面这些位置，然后点「刷新状态」。',
 			manualRefresh: '刷新状态',
@@ -156,7 +159,10 @@ window.__ModuleLoader__.load({
 			setupProxyFilled: 'Proxy configured; the installer will use it.',
 			setupAuto: 'Install automatically (recommended)',
 			setupManual: 'Download manually',
-			setupLater: 'Other settings appear after you choose; the engine cannot start until the assets are in place.',
+			setupLater: 'Other settings appear only after the install finishes; the engine cannot start until then.',
+			autoRunning: 'Preparing the runtime assets: live progress below. The rest of the form appears when it finishes.',
+			setupProxyOptional: 'Fill this only if your network needs a proxy; direct GitHub / Hugging Face may fail.',
+			manualWaiting: 'Place the files below and press Refresh; the rest of the form appears once they are ready.',
 			manualTitle: 'Place the assets manually',
 			manualBody: 'Put the files at the locations below, then press “Refresh”.',
 			manualRefresh: 'Refresh',
@@ -544,49 +550,17 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * First-run gate: the package ships only code, so the user chooses how to
-		 * obtain the runtime assets before the rest of the form is shown.
+		 * First-run guide: pick how to obtain the runtime assets. The guide does not
+		 * reveal the rest of the form — finishing the install does.
 		 */
 		function SetupGuide(props) {
-			const { t, state, actions } = props
-			const proxy = String(state.assetsProxy?.text ?? '')
-			const choose = (mode) => {
-				actions.edit('setupChoice', mode)
-				actions.save()
-			}
+			const { t, state, onAuto, onManual } = props
 			const step = (title, body) =>
 				jsxs(
 					'div',
 					{ style: { marginBottom: 10 }, children: [jsx('p', { style: { margin: '0 0 2px', fontSize: 13, fontWeight: 600 }, children: title }, 't'), jsx('p', { style: STYLE.cardHint, children: body }, 'b')] },
 					title,
 				)
-
-			const proxyRow = jsxs(
-				'div',
-				{
-					style: STYLE.rowStacked,
-					children: [
-						jsxs('div', {
-							style: STYLE.labelLine,
-							children: [
-								jsx('span', { style: STYLE.label, children: t('setupProxy') }, 'label'),
-								jsx('code', { style: STYLE.code, children: 'assetsProxy' }, 'key'),
-							],
-						}, 'line'),
-						jsx('input', {
-							style: STYLE.full,
-							value: proxy,
-							placeholder: 'http://127.0.0.1:7890',
-							onChange: (event) => actions.edit('assetsProxy', event.target.value),
-						}, 'input'),
-						jsx('p', {
-							style: proxy ? STYLE.hint : STYLE.invalid,
-							children: proxy ? t('setupProxyFilled') : t('setupProxyEmpty'),
-						}, 'hint'),
-					],
-				},
-				'proxy',
-			)
 
 			return jsxs(
 				'div',
@@ -596,12 +570,11 @@ window.__ModuleLoader__.load({
 						jsx('p', { style: { margin: '0 0 4px', fontSize: 15, fontWeight: 600 }, children: t('setupTitle') }, 'title'),
 						jsx('p', { style: { margin: '0 0 14px', fontSize: 12, opacity: 0.75 }, children: t('setupIntro') }, 'intro'),
 						step(t('setupStep1'), t('setupStep1Body')),
-						proxyRow,
 						jsx('div', {
 							style: { ...STYLE.control, marginTop: 12 },
 							children: [
-								jsx(prim.Button, { variant: 'primary', onClick: () => choose('auto'), children: t('setupAuto') }, 'auto'),
-								jsx(prim.Button, { variant: 'outline', onClick: () => choose('manual'), children: t('setupManual') }, 'manual'),
+								jsx(prim.Button, { variant: 'primary', onClick: () => onAuto(), children: t('setupAuto') }, 'auto'),
+								jsx(prim.Button, { variant: 'outline', onClick: () => onManual(), children: t('setupManual') }, 'manual'),
 							],
 						}, 'actions'),
 						jsx('p', { style: { ...STYLE.hint, marginTop: 10 }, children: t('setupLater') }, 'later'),
@@ -726,10 +699,6 @@ window.__ModuleLoader__.load({
 					)
 				: null
 
-			const warn =
-				!manual && !ready && status
-					? jsx('p', { style: STYLE.invalid, children: status.proxy ? t('assetsNotReady') : `${t('assetsNotReady')} ${t('assetsProxyMissing')}` }, 'warn')
-					: null
 
 			const actions = manual
 				? jsxs(
@@ -764,7 +733,6 @@ window.__ModuleLoader__.load({
 						manual ? null : options,
 						manual ? null : selects,
 						progress,
-						warn,
 						failure,
 						manualInfo,
 						actions,
@@ -1098,23 +1066,70 @@ window.__ModuleLoader__.load({
 				'header',
 			)
 
-			// First run: nothing else is usable until the user picks how to obtain
-			// the runtime assets, so show only the guide (hooks above stay stable).
+			// First run: nothing else is usable until the assets exist. The gate is
+			// tied to `ready`, not to the choice, so picking a mode does not reveal
+			// the rest of the form — finishing the install does.
 			const assetsReady = Boolean(assets?.status?.ready)
-			if (assets && assets.status && !assetsReady && !setupChoice) {
+			if (assets && assets.status && !assetsReady) {
+				const chooseAuto = () => {
+					props.edit('setupChoice', 'auto')
+					props.save()
+					// Start right away: the user already clicked "install automatically".
+					if (assets) assets.install()
+				}
+				const chooseManual = () => {
+					props.edit('setupChoice', 'manual')
+					props.save()
+				}
+
+				let body
+				if (setupChoice === 'auto') {
+					body = jsxs(
+						'div',
+						{
+							children: [
+								jsx('p', { style: STYLE.hint, children: t('autoRunning') }, 'auto-hint'),
+								jsxs('div', {
+									style: STYLE.row,
+									children: [
+										jsx('span', { style: STYLE.hint, children: t('setupProxy') }, 'proxy-label'),
+										jsx('input', {
+											style: STYLE.full,
+											value: String(state.assetsProxy?.text ?? ''),
+											placeholder: 'http://127.0.0.1:7890',
+											onChange: (event) => props.edit('assetsProxy', event.target.value),
+										}, 'proxy'),
+									],
+								}, 'proxy-row'),
+								jsx('p', { style: STYLE.hint, children: t('setupProxyOptional') }, 'proxy-hint'),
+								assetsCard,
+							],
+						},
+						'auto',
+					)
+				} else if (setupChoice === 'manual') {
+					body = jsxs(
+						'div',
+						{
+							children: [
+								jsx('p', { style: STYLE.hint, children: t('manualWaiting') }, 'manual-hint'),
+								assetsCard,
+							],
+						},
+						'manual',
+					)
+				} else {
+					body = jsx(SetupGuide, { t, state, onAuto: chooseAuto, onManual: chooseManual }, 'setup')
+				}
+
 				return jsx(prim.SettingsForm, {
 					labels: formLabels(t),
 					state,
 					onSave: props.save,
 					onDiscard: props.discard,
-					children: jsxs(
-						'div',
-						{ children: [header, jsx(SetupGuide, { t, state, actions: props }, 'setup')] },
-						'fields',
-					),
+					children: jsxs('div', { children: [header, body] }, 'fields'),
 				})
 			}
-
 			const strip = jsxs(
 				'div',
 				{
