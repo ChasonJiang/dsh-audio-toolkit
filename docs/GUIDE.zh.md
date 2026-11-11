@@ -369,7 +369,8 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
 - 选 **手动下载**：页面列出放置路径（`<root>/bin/audio.cpp`、`<root>/bin/models/…`）和 `assetsDir` 输入，
   放好后点「刷新状态」；
 - 两种方式可随时切换：自动页有「改用手动下载」，手动页有「改用自动安装」；手动页还列出了下载来源。
-- 依赖就绪后引导页自动消失，出现完整配置项与「运行时依赖」卡片。
+- 依赖就绪后引导页与安装控件都会消失：面板只剩一行 ✓ 已就绪 · 体积 · [删除依赖]，其余是配置项。
+- 「删除依赖」会先停引擎再删 `bin/audio.cpp` 与 `bin/models`（仅当路径由插件自动管理时可用），删完回到安装引导。
 
 - 状态：`✓ 已就绪` 或 `缺少：audio.cpp 运行时 / TTS 模型 / …`，并显示已占磁盘大小；
 - 选项：勾选 **audio.cpp 运行时**、**GGUF 模型**，按需安装（也可填 `assetsProxy` 走代理）；
@@ -379,6 +380,8 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
   跨平台选择会被拒绝——本机跑不了别的平台二进制；
 - 按钮：**安装所缺依赖** / **取消安装** / **刷新状态**；进行中显示进度条、当前文件、百分比与速度对应的字节数；
 - 默认写入 `~/.dsh/audio-toolkit`。已有资产时把 `assetsDir` 指过去即可复用（`link:` 安装自动用仓库内 `bin/`）。
+
+面板不再显示这些由 assetsDir 派生的字段（仍可通过配置文件或 MCP 覆盖）：binDir、cliPath、modelsDir、ttsModel、asrModel、asrVadModel、ffmpegPath、assetsApiPort。
 
 依赖服务只绑 `127.0.0.1`（端口 `assetsApiPort`，默认 8789），写操作校验 Origin，只允许本机页面触发。
 面板关闭后不再轮询。也可以打开 `assetsAutoDownload`，让引擎启动时自动补齐（无人值守部署用）。

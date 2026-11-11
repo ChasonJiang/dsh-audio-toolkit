@@ -14,7 +14,7 @@ import { createServer } from 'node:http'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { assetsReady, cancelInstall, installSnapshot, missingAssets, startInstall } from '../mcp/assets.mjs'
+import { assetsReady, cancelInstall, deleteAssets, installSnapshot, missingAssets, startInstall } from '../mcp/assets.mjs'
 import { TOOLKIT_VERSION } from './config.js'
 
 /**
@@ -77,7 +77,7 @@ function readBody(req) {
 /**
  * @param {{getConfig: () => ReturnType<typeof import('./config.js').resolveConfig>, log?: (message: string) => void}} options
  */
-export function createAssetsApi({ getConfig, log = () => {} }) {
+export function createAssetsApi({ getConfig, onBeforeDelete, log = () => {} }) {
   const server = createServer(async (req, res) => {
     const origin = String(req.headers.origin ?? '')
     const sameOrigin = !origin || ALLOWED_ORIGIN.test(origin)
@@ -121,13 +121,24 @@ export function createAssetsApi({ getConfig, log = () => {} }) {
       }
 
       // Mutating calls: only the local DSH UI may drive them.
-      if (req.method === 'POST' && (url.pathname === '/install' || url.pathname === '/cancel')) {
+      if (req.method === 'POST' && (url.pathname === '/install' || url.pathname === '/cancel' || url.pathname === '/delete')) {
         if (!sameOrigin) {
           send(403, { error: 'forbidden origin' })
           return
         }
         if (url.pathname === '/cancel') {
           send(200, { cancelled: cancelInstall() })
+          return
+        }
+        if (url.pathname === '/delete') {
+          if (installSnapshot().running) {
+            send(409, { error: '安装进行中，先取消再删除' })
+            return
+          }
+          if (onBeforeDelete) await onBeforeDelete()
+          const result = deleteAssets(getConfig())
+          log(`[assets] 已删除运行时依赖：${result.removed.length} 个目录`)
+          send(200, result)
           return
         }
         const body = await readBody(req)

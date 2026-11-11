@@ -393,7 +393,12 @@ export function apply(ctx, config) {
 
     // The panel reads asset status and starts installs through this loopback
     // server (the form has no RPC channel of its own).
-    const assetsApi = createAssetsApi({ getConfig: engineConfig, log })
+    const assetsApi = createAssetsApi({
+      getConfig: engineConfig,
+      // Windows keeps DLLs locked while the engine runs; stop it before deleting.
+      onBeforeDelete: () => engine.stop(),
+      log,
+    })
     assetsApi
       .start(resolved.assets.apiPort)
       .catch((error) => hostLogWarn(`[dsh-audio-toolkit] 依赖服务启动失败：${error instanceof Error ? error.message : String(error)}`))

@@ -237,7 +237,7 @@ async function main() {
   check('page view renders a form', tree?.type === 'SettingsForm')
   check('boolean fields use switches', switches.length === 5, `${switches.length} switches`)
   check('enum fields use segmented controls', segments.length === 3, `${segments.length} segmented controls`)
-  check('text/number/list fields use inputs', inputs.length === 29, `${inputs.length} inputs`)
+  check('text/number/list fields use inputs', inputs.length === 22, `${inputs.length} inputs`)
   check('no plain SettingsValueField rows remain', !countType(tree, 'SettingsValueField'))
   check('status strip tags render', tags.length >= 8, `${tags.length} tags`)
   check(
@@ -245,14 +245,14 @@ async function main() {
     [...inputs, ...switches, ...segments].every((node) => node.props.label !== undefined || node.props.id !== undefined),
   )
   const buttonCount = countButtons(tree)
-  check('start/stop engine buttons render', buttonCount === 5, `${buttonCount} buttons`)
+  check('engine start/stop and asset delete buttons render', buttonCount === 3, `${buttonCount} buttons`)
 
   // engine start/stop controls
   const labels = collectText(tree)
   check('engine controls are rendered', labels.includes('t:startEngine') && labels.includes('t:stopEngine'), labels.filter((l) => l.startsWith('t:')).slice(0, 4).join(', '))
   check(
-    'dependency card renders install/cancel/refresh',
-    labels.some((label) => label.includes('t:assetsReady')) && labels.includes('t:assetsInstallAll') && labels.includes('t:assetsCancel') && labels.includes('t:assetsRefresh'),
+    'ready assets row shows status and delete only',
+    labels.some((label) => label.includes('t:assetsReady')) && labels.includes('t:assetsDelete') && !labels.includes('t:assetsInstallAll'),
     labels.filter((l) => l.startsWith('t:assets')).join(', '),
   )
 
@@ -312,7 +312,7 @@ async function main() {
 
   // 4. staged values must match the host Config types (DSH writes them verbatim)
   const specOf = (field) => formSpecs.find((spec) => spec.field === field)
-  check('one spec per editable Config field', formSpecs.length === 38, `${formSpecs.length} specs`)
+  check('one spec per editable Config field', formSpecs.length === 31, `${formSpecs.length} specs`)
   for (const field of ['extraArgs', 'ttsSessionOptions', 'asrSessionOptions']) {
     // The host declares these as `Schema.string()`; an array here would be
     // persisted and then fail schema validation on the next load.

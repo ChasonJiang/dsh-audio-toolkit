@@ -100,6 +100,8 @@ window.__ModuleLoader__.load({
 			assetsUnavailable: '当前平台不支持自动安装（仅 Windows/CUDA）',
 			assetsOptions: '安装内容',
 			assetsTarget: '目标平台 / 后端',
+			assetsDelete: '删除依赖',
+			assetsDeleteConfirm: '删除已安装的运行时依赖？会停止引擎并删除 bin/audio.cpp 与 bin/models。',
 		}
 
 		const en = {
@@ -152,6 +154,8 @@ window.__ModuleLoader__.load({
 			assetsUnavailable: 'Automatic install is Windows/CUDA only',
 			assetsOptions: 'Install',
 			assetsTarget: 'Platform / backend',
+			assetsDelete: 'Delete assets',
+			assetsDeleteConfirm: 'Delete the installed runtime assets? This stops the engine and removes bin/audio.cpp and bin/models.',
 			assetsNotReady: 'Assets are not installed yet: the engine cannot start. Use “Install missing assets” above.',
 			assetsProxyMissing: '⚠ No proxy configured; downloads fail when GitHub / Hugging Face is unreachable (set assetsProxy).',
 			setupTitle: 'First run: prepare runtime assets',
@@ -296,10 +300,6 @@ window.__ModuleLoader__.load({
 					{ field: 'assetsAutoDownload', label: '自动下载资产', hint: '打开后引擎启动时自动补齐依赖（约 6 GB）；默认关闭，用上方「安装依赖」手动确认。', kind: 'boolean', fallback: false },
 					{ field: 'assetsProxyEnabled', label: '使用下载代理', hint: '默认关闭；打开后才会用下面的地址下载依赖。', kind: 'boolean', fallback: false },
 					{ field: 'assetsProxy', label: '下载代理', hint: '留空 = 用 HTTPS_PROXY / HTTP_PROXY；国内直连 GitHub/HF 不通时填本地代理，例如 http://127.0.0.1:7890。', kind: 'text', placeholder: 'http://127.0.0.1:7890' },
-					{ field: 'binDir', label: 'audio.cpp 目录', hint: '留空 = <assetsDir>/bin/audio.cpp。', kind: 'text', placeholder: '自动' },
-					{ field: 'cliPath', label: 'audiocpp_cli 路径', hint: '仅状态检查用；留空 = <binDir>/audiocpp_cli（Windows 为 .exe）。', kind: 'text', placeholder: '自动' },
-					{ field: 'ffmpegPath', label: 'ffmpeg 路径', hint: '留空 = <assetsDir>/bin/ffmpeg/ffmpeg（Windows 为 ffmpeg.exe；找不到时回退 PATH）；也可填所在目录。用于音频转码。', kind: 'text', placeholder: '自动' },
-					{ field: 'modelsDir', label: '模型目录', hint: '留空 = <assetsDir>/bin/models。', kind: 'text', placeholder: '自动' },
 					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
 					{ field: 'device', label: 'GPU 序号', hint: '多卡时选择设备。', kind: 'number' },
 					{ field: 'threads', label: '线程数', hint: '0 = 自动。', kind: 'number' },
@@ -311,7 +311,6 @@ window.__ModuleLoader__.load({
 				hintKey: 'hintTts',
 				fields: [
 					{ field: 'ttsFamily', label: '模型家族', hint: 'audio.cpp --family，例如 index_tts2。', kind: 'text' },
-					{ field: 'ttsModel', label: '模型路径', hint: '留空 = <modelsDir>/IndexTTS2.5-GGUF/index-tts2_5-f16.gguf（fp16）。', kind: 'text' },
 					{ field: 'ttsDefaultVoiceRef', label: '默认参考音色', hint: 'IndexTTS2.5 必须给参考音色；留空则调用时需传 voice_path。', kind: 'text', placeholder: '选择或留空' },
 					{ field: 'ttsVoiceDir', label: '音色目录', hint: '留空 = <assetsDir>/voices，audio_toolkit_tts_list_voices 列这里的 wav。', kind: 'text', placeholder: '自动' },
 					{ field: 'ttsLanguage', label: '默认语言', hint: 'auto 按文本推断。', kind: 'enum', values: ['auto', 'zh', 'en', 'ja', 'es', 'ar'] },
@@ -324,8 +323,6 @@ window.__ModuleLoader__.load({
 				hintKey: 'hintAsr',
 				fields: [
 					{ field: 'asrFamily', label: '模型家族', hint: 'audio.cpp --family，例如 sense_asr。', kind: 'text' },
-					{ field: 'asrModel', label: '模型路径', hint: '留空 = <modelsDir>/SenseVoice-Small-GGUF/sensevoice-small-q8-audiocpp-v1.gguf。', kind: 'text' },
-					{ field: 'asrVadModel', label: 'VAD 模型', hint: 'auto/vad 分块用；留空 = <modelsDir>/PulseVAD-GGUF/pulsevad-2.1k-f32.gguf。', kind: 'text' },
 					{ field: 'asrChunkMode', label: '分块方式', hint: 'fixed 最稳；auto/vad 需要 VAD 且要求 16k 单声道输入。', kind: 'enum', values: ['fixed', 'auto', 'vad', 'none'] },
 					{ field: 'asrChunkSeconds', label: '分块秒数', hint: 'fixed 模式下每段时长。', kind: 'number', unit: 's' },
 					{ field: 'asrLanguage', label: '默认识别语言', hint: 'auto 或 zh/en/yue/ja/ko…。', kind: 'text' },
@@ -460,6 +457,7 @@ window.__ModuleLoader__.load({
 				this.refresh = this.refresh.bind(this)
 				this.toggle = this.toggle.bind(this)
 				this.choose = this.choose.bind(this)
+				this.remove = this.remove.bind(this)
 				this.setPort = this.setPort.bind(this)
 				this.view = {
 					...this.view,
@@ -468,6 +466,7 @@ window.__ModuleLoader__.load({
 					refresh: this.refresh,
 					toggle: this.toggle,
 					choose: this.choose,
+					remove: this.remove,
 					setPort: this.setPort,
 				}
 			}
@@ -553,6 +552,11 @@ window.__ModuleLoader__.load({
 				return this.post('/install', { ...this.view.options })
 			}
 
+			async remove(question) {
+				if (typeof window !== 'undefined' && typeof window.confirm === 'function' && question && !window.confirm(question)) return
+				await this.post('/delete', {})
+			}
+
 			cancel() {
 				return this.post('/cancel', {})
 			}
@@ -606,6 +610,31 @@ window.__ModuleLoader__.load({
 			const percent = running && total > 0 ? Math.min(100, Math.floor((done / total) * 100)) : 0
 			const writable = Boolean(state?.writable)
 			const windows = status?.platform === 'win32'
+			// Ready: the guide and the install controls disappear; only a compact
+			// status row with a delete action remains.
+			if (ready && !manual) {
+				return jsxs(
+					'div',
+					{
+						style: { ...STYLE.row, padding: '4px 0' },
+						children: [
+							jsx(prim.Tag, { tone: 'neutral', children: `✓ ${t('assetsReady')}` }, 'badge'),
+							jsx('code', { style: STYLE.code, children: formatBytes(status.sizes.release + status.sizes.models) }, 'size'),
+							jsx('span', { style: { ...STYLE.hint, flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis' }, children: status.root }, 'root'),
+							jsx(
+								prim.Button,
+								{
+									variant: 'outline',
+									onClick: () => assets.remove(t('assetsDeleteConfirm')),
+									children: t('assetsDelete'),
+								},
+								'delete',
+							),
+						],
+					},
+					'assets',
+				)
+			}
 
 			const badge = jsx(
 				prim.Tag,

@@ -8,7 +8,7 @@
  * Usage: node test/api.mjs
  */
 
-import { mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
@@ -81,6 +81,30 @@ async function main() {
       check('install guard is surfaced', install.status === 500 && String(payload.error).includes('手动指定'), payload.error)
     } finally {
       await manual.close()
+    }
+
+    // Delete: only allowed when the assets are plugin-managed (derived paths).
+    const deleteRoot = join(SCRATCH, 'delete-assets')
+    mkdirSync(join(deleteRoot, 'bin', 'audio.cpp'), { recursive: true })
+    mkdirSync(join(deleteRoot, 'bin', 'models'), { recursive: true })
+    const deletable = createAssetsApi({ getConfig: () => resolveConfig({ assetsDir: deleteRoot }) })
+    const deletablePort = await deletable.start(port + 20)
+    try {
+      const response = await fetch(`http://127.0.0.1:${deletablePort}/delete`, {
+        method: 'POST',
+        headers: { origin: 'dsh-app://app', 'content-type': 'application/json' },
+        body: '{}',
+      })
+      const payload = await response.json()
+      check(
+        'delete removes the managed asset directories',
+        response.status === 200 &&
+          !existsSync(join(deleteRoot, 'bin', 'audio.cpp')) &&
+          !existsSync(join(deleteRoot, 'bin', 'models')),
+        `${response.status} removed=${payload.removed?.length ?? '-'}`,
+      )
+    } finally {
+      await deletable.close()
     }
 
     const missing = await fetch(`${base}/nope`)

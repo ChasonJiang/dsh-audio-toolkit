@@ -614,3 +614,26 @@ export function clearPartial(path) {
     }
   }
 }
+/**
+ * Remove the automatically managed runtime assets.
+ *
+ * Only allowed when `binDir`/`modelsDir` follow `assetsDir` — deleting a
+ * hand-configured directory is the user's own business, not ours.
+ */
+export function deleteAssets(config) {
+  assertInstallable(config, { platform: process.platform })
+  const removed = []
+  for (const dir of [config.audioCpp.binDir, config.audioCpp.modelsDir]) {
+    if (existsSync(dir)) {
+      rmSync(dir, { recursive: true, force: true })
+      removed.push(dir)
+    }
+  }
+  const marker = join(config.assets.root, 'assets.json')
+  if (existsSync(marker)) rmSync(marker, { force: true })
+  install.running = false
+  install.phase = ''
+  install.error = ''
+  install.progress = { phase: '', file: '', done: 0, total: 0 }
+  return { removed, root: config.assets.root }
+}
