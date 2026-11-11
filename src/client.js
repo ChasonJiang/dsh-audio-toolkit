@@ -914,7 +914,12 @@ window.__ModuleLoader__.load({
 
 			// Asset status/progress come from the host's loopback service; the hook
 			// only polls while the card is mounted.
-			const assets = typeof props.useAudioToolkitAssets === 'function' ? props.useAudioToolkitAssets() : null
+			// The host exposes the injected store as useSelector(store, selector), so a
+			// selector is mandatory — same call shape as the form store above.
+			const assets =
+				typeof props.useAudioToolkitAssets === 'function'
+					? props.useAudioToolkitAssets((snapshot) => snapshot)
+					: null
 			if (assets && typeof assets.setPort === 'function') assets.setPort(state.assetsApiPort?.text)
 			const assetsCard = jsx(AssetsCard, { t, state, assets }, 'assets')
 

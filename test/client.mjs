@@ -217,7 +217,12 @@ async function main() {
     view: 'page',
     t,
     useAudioToolkitCard: (selector) => selector(projection),
-    useAudioToolkitAssets: () => assetsView,
+    // Mirror the host: useSelector(store, selector) requires a selector and
+    // throws without one (this is what broke the live panel).
+    useAudioToolkitAssets: (selector) => {
+      if (typeof selector !== 'function') throw new TypeError('selector is not a function')
+      return selector(assetsView)
+    },
     save: () => {},
     discard: () => {},
     edit: () => {},
