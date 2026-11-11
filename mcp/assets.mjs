@@ -16,6 +16,7 @@ import { pipeline } from 'node:stream/promises'
 
 import { TOOLKIT_VERSION, isFile } from '../src/config.js'
 import { extractTarGz, isTarGz } from './tar.mjs'
+import { resolveFfmpeg } from './transcode.mjs'
 import { extractZip } from './zip.mjs'
 
 export const USER_AGENT = 'dsh-audio-toolkit'
@@ -305,6 +306,41 @@ async function installRelease(config, options) {
   }
 }
 
+/** Windows ffmpeg build used when the machine has none (≈110 MB). */
+export const FFMPEG_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+
+/**
+ * Download ffmpeg into the asset root when it is missing.
+ *
+ * Only the Windows build has a stable direct download; Linux/macOS get a hint to
+ * install through the system package manager (the proxy/PATH fallback still
+ * applies at runtime).
+ */
+export async function installFfmpeg(config, options = {}) {
+  const { log = () => {} } = options
+  if ((options.platform ?? process.platform) !== 'win32') return { installed: false, reason: 'platform' }
+  const dest = dirname(config.audioCpp.ffmpegPath)
+  const target = join(dest, 'ffmpeg.exe')
+  if (isFile(target)) return { installed: false, reason: 'exists' }
+  const buffer = await downloadBuffer(options.ffmpegUrl ?? FFMPEG_URL, { ...options, label: 'ffmpeg', phase: 'ffmpeg' })
+  extractZip(buffer, dest, { filter: (name) => /(^|\/)ffmpeg\.exe$/i.test(name), flatten: true })
+  if (!isFile(target)) throw new Error('ffmpeg 下载后没有找到 ffmpeg.exe')
+  log(`[assets] ffmpeg 已安装到 ${dest}`)
+  return { installed: true }
+}
+
+/** Provision ffmpeg when the deployment manages the paths itself. */
+async function ensureFfmpeg(config, options = {}) {
+  const { log = () => {} } = options
+  if (resolveFfmpeg(config)) return
+  if (!config.assets.derived) return
+  if ((options.platform ?? process.platform) !== 'win32') {
+    log('[assets] 未内置 ffmpeg；请用系统包管理器安装（Windows 会自动下载）')
+    return
+  }
+  await installFfmpeg(config, options)
+}
+
 /** Install the three GGUF files. */
 async function installModels(config, options) {
   const bases = options.modelBases ?? modelBases()
@@ -343,6 +379,7 @@ export async function provisionAssets(config, options = {}) {
   mkdirSync(config.assets.root, { recursive: true })
   await installRelease(config, { ...options, log })
   await installModels(config, { ...options, log })
+  await ensureFfmpeg(config, { ...options, log })
 }
 
 /**
@@ -454,6 +491,7 @@ function runInstall(config, options = {}) {
       modelBases: options.modelBases,
       platform: options.platform,
       backend: options.backend,
+      ffmpegUrl: options.ffmpegUrl,
     },
   })
   const script = join(dirname(fileURLToPath(import.meta.url)), 'provision.mjs')

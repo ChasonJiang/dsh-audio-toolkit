@@ -19,6 +19,7 @@ import {
   availableTargets,
   defaultBackend,
   ensureAssets,
+  installFfmpeg,
   missingAssets,
   modelBases,
   pickCudartAsset,
@@ -122,6 +123,9 @@ const macRuntimeTar = makeTarGz({
   'audio-v0.9.4-bin-macos-arm64-metal/audiocpp_server': 'server-stub',
   'audio-v0.9.4-bin-macos-arm64-metal/model_specs/index_tts2.json': '{}',
 })
+const ffmpegZip = makeZip({
+  'ffmpeg-7.1-essentials_build/bin/ffmpeg.exe': 'ffmpeg-stub',
+})
 const modelPayload = Buffer.alloc(256 * 1024, 7)
 
 const release = {
@@ -155,6 +159,7 @@ function startServer() {
     }
     if (url.pathname === '/windows-cuda.zip' || url.pathname === '/windows-cpu.zip' || url.pathname === '/windows-cpu-portable.zip' || url.pathname === '/windows-vulkan.zip') return send(runtimeZip)
     if (url.pathname === '/cudart.zip') return send(cudartZip)
+    if (url.pathname === '/ffmpeg.zip') return send(ffmpegZip)
     if (url.pathname === '/ubuntu-cpu.tar.gz' || url.pathname === '/ubuntu-vulkan.tar.gz') return send(linuxRuntimeTar)
     if (url.pathname === '/macos-arm64-metal.tar.gz' || url.pathname === '/macos-x64-metal.tar.gz') return send(macRuntimeTar)
     if (url.pathname === '/cudart-linux.tar.gz') return send(linuxRuntimeTar)
@@ -260,6 +265,21 @@ async function main() {
     check('marker written', existsSync(join(assetsDir, 'assets.json')))
     check('assets now complete', missingAssets(freshConfig(assetsDir)).length === 0)
     check('progress is logged', logs.some((line) => line.includes('[assets]')), `${logs.length} lines`)
+
+    // ffmpeg ships with the assets on Windows (skipped when PATH already has one).
+    const ffmpegDir = join(SCRATCH, 'ffmpeg-install')
+    const ffmpegCfg = resolveConfig({
+      assetsDir: ffmpegDir,
+      ffmpegPath: join(ffmpegDir, 'bin', 'ffmpeg', 'ffmpeg.exe'),
+    })
+    const seeded = await installFfmpeg(ffmpegCfg, { ffmpegUrl: `${base}/ffmpeg.zip`, platform: 'win32' })
+    check(
+      'ffmpeg is installed with the assets',
+      seeded.installed === true && existsSync(join(ffmpegDir, 'bin', 'ffmpeg', 'ffmpeg.exe')),
+      JSON.stringify(seeded),
+    )
+    const again = await installFfmpeg(ffmpegCfg, { ffmpegUrl: `${base}/ffmpeg.zip`, platform: 'win32' })
+    check('ffmpeg install is a no-op when present', again.installed === false && again.reason === 'exists', JSON.stringify(again))
 
     const second = await ensureAssets(freshConfig(assetsDir), { platform: process.platform, backend, inProcess: true })
     check('second call is a no-op', second.provisioned === false)
