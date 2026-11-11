@@ -98,6 +98,7 @@ bin/
 | `setupChoice` | 空 | 首次设置的选择：空 = 未选（面板只显示安装引导）/ `auto` / `manual` |
 | `assetsDir` | 自动 | 运行时资产根。留空 = 自动发现：包内 `bin/`（`link:`/开发）→ `DSH_AUDIO_TOOLKIT_ASSETS` → `~/.dsh/audio-toolkit`（`github:`/npm 安装的下载目标） |
 | `assetsAutoDownload` | `false` | 打开后引擎启动时自动补齐依赖；默认关闭，由面板「运行时依赖 → 安装依赖」手动确认（约 6 GB） |
+| `assetsProxyEnabled` / `assetsProxy` | `false` / 空 | 下载依赖时才用代理：先勾选「使用代理下载」，地址才生效；关闭时代理值被忽略 |
 | `assetsApiPort` | `8789` | 面板「运行时依赖」用的本地服务端口（只绑 127.0.0.1，被占用时自动顺延） |
 | `binDir` / `cliPath` / `modelsDir` | 自动 | 分别默认 `<assetsDir>/bin/audio.cpp`、`<binDir>/audiocpp_cli.exe`、`<assetsDir>/bin/models` |
 | `ffmpegPath` | 自动 | 默认 `<assetsDir>/bin/ffmpeg/ffmpeg`（Windows 为 `ffmpeg.exe`）；也可填所在目录；找不到时回退 PATH |
@@ -363,7 +364,8 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
 其余配置项在安装完成后才出现（门控看的是资产状态，不是用户选没选）。
 
 - 引导页说明依赖是什么、要占多少空间，并给两个选择：**自动安装（推荐）** / **手动下载**；
-- 选 **自动安装**：**立刻开始**下载，页面只显示进度条与取消按钮；代理是**可选项**，只有网络需要时才填；
+- 选 **自动安装**：进入安装页，点卡片里的 **「安装所缺依赖」** 才真正开始下载（切换方式不会触发下载）；
+  代理默认关闭，勾选「使用代理下载」后代理输入框才可填写；
 - 选 **手动下载**：页面列出放置路径（`<root>/bin/audio.cpp`、`<root>/bin/models/…`）和 `assetsDir` 输入，
   放好后点「刷新状态」；
 - 两种方式可随时切换：自动页有「改用手动下载」，手动页有「改用自动安装」；手动页还列出了下载来源。

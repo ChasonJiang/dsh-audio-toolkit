@@ -159,6 +159,10 @@ function buildConfig() {
       .default(false)
       .description('资产缺失时是否允许引擎自动下载（约 6 GB）。默认关闭：由面板「安装依赖」手动确认，适合无人值守部署时打开。')
       .volatile(),
+    assetsProxyEnabled: Schema.boolean()
+      .default(false)
+      .description('下载资产时是否使用代理。默认关闭；打开后才读取下面的代理地址。')
+      .volatile(),
     assetsProxy: Schema.string()
       .default('')
       .description('下载资产用的 HTTP(S) 代理（例如 http://127.0.0.1:7890）。留空 = 用环境变量 HTTPS_PROXY / HTTP_PROXY。')
@@ -273,6 +277,7 @@ const CONFIG_KEYS = [
   'setupChoice',
   'assetsDir',
   'assetsAutoDownload',
+  'assetsProxyEnabled',
   'assetsProxy',
   'assetsApiPort',
   'binDir',

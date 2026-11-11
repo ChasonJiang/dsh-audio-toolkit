@@ -70,7 +70,8 @@ window.__ModuleLoader__.load({
 			setupManual: '手动下载',
 			setupLater: '安装完成后才会显示其他配置项；依赖未就绪时引擎无法启动。',
 			autoRunning: '正在准备运行时依赖：下方显示实时进度，装完会自动出现其余配置项。',
-			setupProxyOptional: '网络需要代理时才填；直连 GitHub / Hugging Face 不通时安装会失败。',
+			setupProxyEnable: '使用代理下载（仅在需要时勾选）',
+			setupProxyOptional: '未勾选时不使用代理；直连 GitHub / Hugging Face 不通时再打开并填写地址。',
 			manualWaiting: '把依赖放到下面这些位置后点「刷新状态」，就绪后会自动出现其余配置项。',
 			switchToManual: '改用手动下载',
 			switchToAuto: '改用自动安装',
@@ -164,7 +165,8 @@ window.__ModuleLoader__.load({
 			setupManual: 'Download manually',
 			setupLater: 'Other settings appear only after the install finishes; the engine cannot start until then.',
 			autoRunning: 'Preparing the runtime assets: live progress below. The rest of the form appears when it finishes.',
-			setupProxyOptional: 'Fill this only if your network needs a proxy; direct GitHub / Hugging Face may fail.',
+			setupProxyEnable: 'Use a proxy for downloads (only if needed)',
+			setupProxyOptional: 'No proxy is used unless enabled; turn it on and fill the address if GitHub / Hugging Face is unreachable.',
 			manualWaiting: 'Place the files below and press Refresh; the rest of the form appears once they are ready.',
 			switchToManual: 'Switch to manual download',
 			switchToAuto: 'Switch to automatic install',
@@ -292,6 +294,7 @@ window.__ModuleLoader__.load({
 				fields: [
 					{ field: 'assetsDir', label: '资产根目录', hint: '存放 bin/audio.cpp 与 bin/models。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → ~/.dsh/audio-toolkit。', kind: 'text', placeholder: '自动' },
 					{ field: 'assetsAutoDownload', label: '自动下载资产', hint: '打开后引擎启动时自动补齐依赖（约 6 GB）；默认关闭，用上方「安装依赖」手动确认。', kind: 'boolean', fallback: false },
+					{ field: 'assetsProxyEnabled', label: '使用下载代理', hint: '默认关闭；打开后才会用下面的地址下载依赖。', kind: 'boolean', fallback: false },
 					{ field: 'assetsProxy', label: '下载代理', hint: '留空 = 用 HTTPS_PROXY / HTTP_PROXY；国内直连 GitHub/HF 不通时填本地代理，例如 http://127.0.0.1:7890。', kind: 'text', placeholder: 'http://127.0.0.1:7890' },
 					{ field: 'binDir', label: 'audio.cpp 目录', hint: '留空 = <assetsDir>/bin/audio.cpp。', kind: 'text', placeholder: '自动' },
 					{ field: 'cliPath', label: 'audiocpp_cli 路径', hint: '仅状态检查用；留空 = <binDir>/audiocpp_cli（Windows 为 .exe）。', kind: 'text', placeholder: '自动' },
@@ -1074,19 +1077,18 @@ window.__ModuleLoader__.load({
 
 			// First run: nothing else is usable until the assets exist. The gate is
 			// tied to `ready`, not to the choice, so picking a mode does not reveal
-			// the rest of the form — finishing the install does.
+			// the rest of the form — and it never starts a download by itself.
 			const assetsReady = Boolean(assets?.status?.ready)
 			if (assets && assets.status && !assetsReady) {
 				const chooseAuto = () => {
 					props.edit('setupChoice', 'auto')
 					props.save()
-					// Start right away: the user already clicked "install automatically".
-					if (assets) assets.install()
 				}
 				const chooseManual = () => {
 					props.edit('setupChoice', 'manual')
 					props.save()
 				}
+				const proxyEnabled = String(state.assetsProxyEnabled?.text ?? '').toLowerCase() === 'true'
 
 				let body
 				if (setupChoice === 'auto') {
@@ -1095,18 +1097,29 @@ window.__ModuleLoader__.load({
 						{
 							children: [
 								jsx('p', { style: STYLE.hint, children: t('autoRunning') }, 'auto-hint'),
-								jsxs('div', {
-									style: STYLE.row,
+								jsx('label', {
+									style: { ...STYLE.hint, display: 'flex', alignItems: 'center', gap: 6 },
 									children: [
-										jsx('span', { style: STYLE.hint, children: t('setupProxy') }, 'proxy-label'),
 										jsx('input', {
-											style: STYLE.full,
-											value: String(state.assetsProxy?.text ?? ''),
-											placeholder: 'http://127.0.0.1:7890',
-											onChange: (event) => props.edit('assetsProxy', event.target.value),
-										}, 'proxy'),
+											type: 'checkbox',
+											checked: proxyEnabled,
+											onChange: (event) => {
+												props.edit('assetsProxyEnabled', event.target.checked ? 'true' : 'false')
+												props.save()
+											},
+										}, 'proxy-toggle'),
+										t('setupProxyEnable'),
 									],
-								}, 'proxy-row'),
+								}, 'proxy-label'),
+								jsx('input', {
+									style: { ...STYLE.full, opacity: proxyEnabled ? 1 : 0.5 },
+									value: String(state.assetsProxy?.text ?? ''),
+									placeholder: 'http://127.0.0.1:7890',
+									disabled: !proxyEnabled,
+									onChange: (event) => props.edit('assetsProxy', event.target.value),
+									// Persist before the install button reads the config.
+									onBlur: () => props.save(),
+								}, 'proxy'),
 								jsx('p', { style: STYLE.hint, children: t('setupProxyOptional') }, 'proxy-hint'),
 								assetsCard,
 								jsx(prim.Button, { variant: 'outline', onClick: () => { props.edit('setupChoice', 'manual'); props.save() }, children: t('switchToManual') }, 'switch-manual'),
@@ -1122,7 +1135,7 @@ window.__ModuleLoader__.load({
 								jsx('p', { style: STYLE.hint, children: t('manualWaiting') }, 'manual-hint'),
 								jsx('p', { style: STYLE.hint, children: t('manualSources') }, 'manual-sources'),
 								assetsCard,
-								jsx(prim.Button, { variant: 'outline', onClick: () => { props.edit('setupChoice', 'auto'); props.save(); if (assets) assets.install() }, children: t('switchToAuto') }, 'switch-auto'),
+								jsx(prim.Button, { variant: 'outline', onClick: () => { props.edit('setupChoice', 'auto'); props.save() }, children: t('switchToAuto') }, 'switch-auto'),
 							],
 						},
 						'manual',
@@ -1131,13 +1144,9 @@ window.__ModuleLoader__.load({
 					body = jsx(SetupGuide, { t, state, onAuto: chooseAuto, onManual: chooseManual }, 'setup')
 				}
 
-				return jsx(prim.SettingsForm, {
-					labels: formLabels(t),
-					state,
-					onSave: props.save,
-					onDiscard: props.discard,
-					children: jsxs('div', { children: [header, body] }, 'fields'),
-				})
+				// No SettingsForm here: its Save/Discard bar has nothing to do during
+				// onboarding, and the guide writes values through the form actions.
+				return jsxs('div', { children: [header, body] }, 'fields')
 			}
 			const strip = jsxs(
 				'div',

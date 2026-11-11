@@ -128,6 +128,7 @@ export const DEFAULT_CONFIG = {
   setupChoice: '',
   assetsDir: '',
   assetsAutoDownload: false,
+  assetsProxyEnabled: false,
   assetsProxy: '',
   assetsApiPort: 8789,
   binDir: '',
@@ -354,7 +355,8 @@ export function resolveConfig(raw = {}, options = {}) {
     assets: {
       root: assetsRoot,
       autoDownload: bool(get('assetsAutoDownload'), DEFAULT_CONFIG.assetsAutoDownload),
-      proxy: str(get('assetsProxy'), ''),
+      // A proxy is only used when the user explicitly enables it.
+      proxy: bool(get('assetsProxyEnabled'), false) ? str(get('assetsProxy'), '') : '',
       apiPort: Math.min(Math.max(int(get('assetsApiPort'), DEFAULT_CONFIG.assetsApiPort, { min: 1024 }), 1024), 65535),
       // True when binDir/modelsDir follow the asset root, i.e. the plugin may provision it.
       derived: !binOverride && !modelsOverride,
