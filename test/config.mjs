@@ -20,6 +20,8 @@ import {
   DEFAULT_CONFIG,
   FFMPEG_BINARY,
   SERVER_BINARY,
+  ffmpegFallbackPath,
+  findOnPath,
   STATE_CONFIG_PATH,
   STATE_DIR,
   STATE_ENGINE_CONFIG_PATH,
@@ -79,11 +81,16 @@ async function main() {
   check('default engine server exe', defaults.engine.exePath.endsWith(join('audio.cpp', SERVER_BINARY)), defaults.engine.exePath)
   // CI runs without the multi-gigabyte release/models. Asset-dependent checks are
   // reported as SKIP there instead of failing, so a fresh clone stays green.
+  // ffmpeg is required: on machines that only have a profile-level ffmpegPath the
+  // profile-free default config cannot see it, so gate on the same resolution.
+  const hasFfmpeg =
+    isFile(defaults.audioCpp.ffmpegPath) || Boolean(findOnPath('ffmpeg')) || Boolean(ffmpegFallbackPath())
   const hasAssets =
     process.env.AUDIO_TOOLKIT_NO_ASSETS !== '1' &&
     isFile(defaults.engine.exePath) &&
     isFile(defaults.tts.model) &&
-    isFile(defaults.asr.model)
+    isFile(defaults.asr.model) &&
+    hasFfmpeg
   if (hasAssets) {
     const install = inspectInstall(defaults)
     check('install checks all pass', install.ok, install.checks.filter((c) => !c.ok).map((c) => c.label).join(', ') || 'server + cli + models + vad')
