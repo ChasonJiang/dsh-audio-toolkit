@@ -301,7 +301,8 @@ async function main() {
     'auto mode still hides the form',
     countType(autoTree, 'Input') === 0 &&
       autoLabels.some((label) => label.includes('t:assetsInstallAll')) &&
-      !autoLabels.some((label) => label.includes('t:setupAuto')),
+      !autoLabels.some((label) => label.includes('t:setupAuto')) &&
+      autoLabels.some((label) => label.includes('t:switchToManual')),
     `${countType(autoTree, 'Input')} inputs`,
   )
 
