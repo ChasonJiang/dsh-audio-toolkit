@@ -212,7 +212,7 @@ window.__ModuleLoader__.load({
 				fields: [
 					{ field: 'binDir', label: 'audio.cpp 目录', hint: '留空 = <仓库>/bin/audio.cpp。', kind: 'text', placeholder: '自动' },
 					{ field: 'cliPath', label: 'audiocpp_cli 路径', hint: '仅状态检查用；留空 = <binDir>/audiocpp_cli.exe。', kind: 'text', placeholder: '自动' },
-					{ field: 'ffmpegPath', label: 'ffmpeg 路径', hint: '留空 = <仓库>/bin/ffmpeg/ffmpeg.exe（找不到时回退 PATH）；也可填所在目录。用于音频转码。', kind: 'text', placeholder: '自动' },
+					{ field: 'ffmpegPath', label: 'ffmpeg 路径', hint: '留空 = <仓库>/bin/ffmpeg/ffmpeg（Windows 为 ffmpeg.exe；找不到时回退 PATH）；也可填所在目录。用于音频转码。', kind: 'text', placeholder: '自动' },
 					{ field: 'modelsDir', label: '模型目录', hint: '留空 = <仓库>/bin/models。', kind: 'text', placeholder: '自动' },
 					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
 					{ field: 'device', label: 'GPU 序号', hint: '多卡时选择设备。', kind: 'number' },

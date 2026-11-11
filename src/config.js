@@ -25,14 +25,17 @@ export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..
 /**
  * Directory that owns `bin/` (audio.cpp release + models) and `voices/`.
  *
- * The package normally sits at the repository root, so this is `PACKAGE_ROOT`.
- * A package nested one level down (the pre-0.8 layout) still resolves to its
- * parent when `<PACKAGE_ROOT>/bin` does not exist.
+ * Always the package root: the package *is* the repository root. Do not derive
+ * it from the parent directory — on a fresh clone (no `bin/` yet) or under
+ * `node_modules` that would point outside the project.
  */
-export const ASSET_ROOT = existsSync(join(PACKAGE_ROOT, 'bin')) ? PACKAGE_ROOT : resolve(PACKAGE_ROOT, '..')
+export const ASSET_ROOT = PACKAGE_ROOT
 
 /** Back-compat alias: tests and scripts call the asset root `REPO_ROOT`. */
 export const REPO_ROOT = ASSET_ROOT
+
+/** ffmpeg executable name used when a directory is configured instead of a file. */
+export const FFMPEG_BINARY = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
 
 /**
  * Toolkit version, read from package.json so it is declared exactly once.
@@ -87,7 +90,7 @@ export const DEFAULT_CONFIG = {
 
   binDir: DEFAULT_BIN_DIR,
   cliPath: '',
-  ffmpegPath: join(DEFAULT_BIN_ROOT, 'ffmpeg', 'ffmpeg.exe'),
+  ffmpegPath: join(DEFAULT_BIN_ROOT, 'ffmpeg', FFMPEG_BINARY),
   modelsDir: DEFAULT_MODELS_DIR,
   backend: 'cuda',
   device: 0,
@@ -273,7 +276,7 @@ export function resolveConfig(raw = {}, options = {}) {
   const modelsDir = resolvePath(pathOr(get('modelsDir'), DEFAULT_CONFIG.modelsDir))
   // `ffmpegPath` may point at the executable or at the directory holding it.
   const ffmpegConfigured = resolvePath(pathOr(get('ffmpegPath'), DEFAULT_CONFIG.ffmpegPath))
-  const ffmpegPath = isDir(ffmpegConfigured) ? join(ffmpegConfigured, 'ffmpeg.exe') : ffmpegConfigured
+  const ffmpegPath = isDir(ffmpegConfigured) ? join(ffmpegConfigured, FFMPEG_BINARY) : ffmpegConfigured
   // Output: a folder *name* under the session working directory. An absolute
   // value is honored as-is for advanced users.
   const folderRaw = pathOr(get('outputFolder'), DEFAULT_CONFIG.outputFolder)

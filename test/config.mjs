@@ -18,6 +18,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   DEFAULT_CONFIG,
+  FFMPEG_BINARY,
   STATE_CONFIG_PATH,
   STATE_DIR,
   STATE_ENGINE_CONFIG_PATH,
@@ -131,14 +132,19 @@ async function main() {
   check('blank path means default', resolveConfig({ ttsModel: '' }).tts.model === DEFAULT_CONFIG.ttsModel)
   check(
     'default ffmpeg lives under bin/ffmpeg',
-    defaults.audioCpp.ffmpegPath.endsWith(join('bin', 'ffmpeg', 'ffmpeg.exe')),
+    defaults.audioCpp.ffmpegPath.endsWith(join('bin', 'ffmpeg', FFMPEG_BINARY)),
     defaults.audioCpp.ffmpegPath,
   )
+  // A directory is only recognised as one when it exists, so use a real fixture;
+  // CI has no `bin/` at all.
+  const ffmpegDir = join(STATE_DIR, 'tmp', 'ffmpeg-dir')
+  mkdirSync(ffmpegDir, { recursive: true })
   check(
     'ffmpeg path accepts the directory holding it',
-    resolveConfig({ ffmpegPath: DEFAULT_CONFIG.binDir }).audioCpp.ffmpegPath === join(DEFAULT_CONFIG.binDir, 'ffmpeg.exe'),
-    resolveConfig({ ffmpegPath: DEFAULT_CONFIG.binDir }).audioCpp.ffmpegPath,
+    resolveConfig({ ffmpegPath: ffmpegDir }).audioCpp.ffmpegPath === join(ffmpegDir, FFMPEG_BINARY),
+    resolveConfig({ ffmpegPath: ffmpegDir }).audioCpp.ffmpegPath,
   )
+  rmSync(ffmpegDir, { recursive: true, force: true })
   check(
     'the toolkit version comes from package.json',
     TOOLKIT_VERSION === JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')).version,
@@ -161,9 +167,22 @@ async function main() {
     engineConfig.models[1].default_request_options.audio_chunk_mode === 'fixed',
     JSON.stringify(engineConfig.models[1].default_request_options),
   )
+  // The VAD option is advertised only when the file exists, so point it at a real
+  // fixture instead of assuming the models are installed (CI has none).
+  const vadFixture = join(STATE_DIR, 'tmp', 'vad-fixture.gguf')
+  mkdirSync(dirname(vadFixture), { recursive: true })
+  writeFileSync(vadFixture, 'gguf')
   check(
     'asr vad session option points at the VAD model',
-    engineConfig.models[1].session_options?.['sense_asr.vad_model_path'] === defaults.asr.vadModel,
+    toEngineConfig(resolveConfig({ asrVadModel: vadFixture })).models[1].session_options?.['sense_asr.vad_model_path'] === vadFixture,
+    vadFixture,
+  )
+  rmSync(vadFixture, { force: true })
+  check(
+    'a missing VAD model is not advertised to the engine',
+    toEngineConfig(resolveConfig({ asrVadModel: join(PACKAGE_ROOT, 'missing-vad.gguf') })).models[1].session_options?.[
+      'sense_asr.vad_model_path'
+    ] === undefined,
   )
 
   // 4. volatile flat config + DSH form contract
@@ -459,8 +478,23 @@ async function main() {
   // 11. install checks are per action: one model must not block the other tool
   {
     const { requireInstall } = await import('../mcp/tools.mjs')
-    const missingTts = resolveConfig({ ttsModel: join(PACKAGE_ROOT, 'missing-tts.gguf') })
-    const missingAsr = resolveConfig({ asrModel: join(PACKAGE_ROOT, 'missing-asr.gguf') })
+    // Build the fixtures from files that exist here, so the assertion tests the
+    // per-action logic rather than "is the release installed on this machine".
+    const fakeBin = join(STATE_DIR, 'tmp', 'test-bin')
+    mkdirSync(fakeBin, { recursive: true })
+    writeFileSync(join(fakeBin, 'audiocpp_server.exe'), 'stub')
+    const presentModel = join(STATE_DIR, 'tmp', 'present.gguf')
+    writeFileSync(presentModel, 'gguf')
+    const missingTts = resolveConfig({
+      binDir: fakeBin,
+      ttsModel: join(PACKAGE_ROOT, 'missing-tts.gguf'),
+      asrModel: presentModel,
+    })
+    const missingAsr = resolveConfig({
+      binDir: fakeBin,
+      ttsModel: presentModel,
+      asrModel: join(PACKAGE_ROOT, 'missing-asr.gguf'),
+    })
     const message = (fn) => {
       try {
         fn()
@@ -473,6 +507,8 @@ async function main() {
     check('asr install check reports a missing ASR model', message(() => requireInstall(missingAsr, 'asr')).includes('ASR 模型不存在'))
     check('tts install check ignores a missing ASR model', message(() => requireInstall(missingAsr, 'tts')) === '')
     check('tts install check reports a missing TTS model', message(() => requireInstall(missingTts, 'tts')).includes('TTS 模型不存在'))
+    rmSync(fakeBin, { recursive: true, force: true })
+    rmSync(presentModel, { force: true })
     // A missing binary still blocks both.
     const missingExe = resolveConfig({ binDir: join(PACKAGE_ROOT, 'nope-bin') })
     check('install checks still require audiocpp_server', message(() => requireInstall(missingExe, 'asr')).includes('audiocpp_server 不存在'))

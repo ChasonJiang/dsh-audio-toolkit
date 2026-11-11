@@ -96,7 +96,7 @@ bin/
 | `toolCallTimeoutMs` | `900000` | 单次引擎请求的超时（覆盖响应体读取） |
 | `maxConcurrentCalls` | `2` | 并发上限：异步任务队列 + 原生 TTS/ASR 工具都受它约束 |
 | `binDir` / `cliPath` / `modelsDir` | 自动 | audio.cpp 目录与可执行文件 |
-| `ffmpegPath` | `<仓库>/bin/ffmpeg/ffmpeg.exe` | 转码用的 ffmpeg：可填可执行文件或所在目录；找不到时回退到 PATH 上的 `ffmpeg` |
+| `ffmpegPath` | `<仓库>/bin/ffmpeg/ffmpeg`（Windows 为 `ffmpeg.exe`） | 转码用的 ffmpeg：可填可执行文件或所在目录；找不到时回退到 PATH 上的 `ffmpeg` |
 | `backend` / `device` / `threads` | `cuda` / `0` / `0` | 后端与设备（改动会重启引擎；VAD 也跟随 device/threads） |
 | `extraArgs` | 空 | 追加给 `audiocpp_server` 的启动参数（空格分隔，最后一个生效） |
 | `ttsFamily` / `ttsModel` | `index_tts2` / **fp16 GGUF** | TTS 模型 |
