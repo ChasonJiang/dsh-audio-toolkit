@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { transcribeAudio } from '../mcp/engine.mjs'
@@ -206,6 +206,12 @@ async function chunkingOptionsCheck() {
       sent.options?.audio_chunk_duration_sec === 7,
       String(sent.options?.audio_chunk_duration_sec),
     )
+
+    // Relative inputs must resolve against the session directory, not the package
+    // root (the installed package lives under node_modules).
+    const relativeCfg = resolveConfig({ enginePort: server.address().port }, { baseDir: dirname(ready) })
+    await asrTranscribe({ audio_path: basename(ready), save_to_file: false }, relativeCfg)
+    check('relative audio_path resolves against the session directory', recorded.length >= 2, `${recorded.length} requests`)
 
 
   } finally {

@@ -89,7 +89,14 @@ function slug(text) {
 function resolveInputFile(input, cfg, label) {
   const raw = typeof input === 'string' ? input.trim() : ''
   if (!raw) throw new EngineError(`缺少 ${label} 参数`)
-  const candidates = [resolvePath(raw), resolvePath(raw, cfg.output.dir), resolvePath(raw, process.cwd())]
+  // Session working directory first (what the tool description promises), then the
+  // package root (bundled fixtures in a dev install), the output folder and cwd.
+  const candidates = [
+    resolvePath(raw, cfg.output.baseDir),
+    resolvePath(raw),
+    resolvePath(raw, cfg.output.dir),
+    resolvePath(raw, process.cwd()),
+  ]
   const seen = new Set()
   for (const candidate of candidates) {
     if (!candidate || seen.has(candidate)) continue
@@ -390,7 +397,10 @@ export async function asrTranscribe(params, cfg, context = {}) {
  * @param {ReturnType<typeof import('../src/config.js').resolveConfig>} cfg
  */
 export function ttsListVoices(params, cfg) {
-  const dir = params.voice_dir ? resolvePath(params.voice_dir) : cfg.tts.voiceDir
+  const dir = params.voice_dir
+    ? [resolvePath(params.voice_dir, cfg.output.baseDir), resolvePath(params.voice_dir)].find((path) => isDir(path)) ??
+      resolvePath(params.voice_dir, cfg.output.baseDir)
+    : cfg.tts.voiceDir
   const files = listFiles(dir, '.wav')
   const query = typeof params.query === 'string' ? params.query.trim().toLowerCase() : ''
   // Name and path are what a caller passes back as `voice_path`; sizes and a
