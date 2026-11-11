@@ -125,6 +125,7 @@ export const DEFAULT_CONFIG = {
   enginePort: 8788,
 
   // Empty path fields mean "derive from assetsDir"; the panel shows 自动.
+  setupChoice: '',
   assetsDir: '',
   assetsAutoDownload: false,
   assetsProxy: '',

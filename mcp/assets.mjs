@@ -199,7 +199,7 @@ async function downloadToFile(url, target, options) {
     written += chunk.length
     onProgress({ phase, file: label, done: written, total })
     const now = Date.now()
-    if (now - lastLog > 5000) {
+    if (now - lastLog > 1000) {
       lastLog = now
       const percent = total ? ` ${Math.floor((written / total) * 100)}%` : ''
       log(`[assets] ${label}${percent}（${formatBytes(written)}）`)
@@ -388,6 +388,8 @@ function workerEnv(config, options) {
   const proxy =
     options.proxy || config.assets.proxy || process.env.DSH_AUDIO_TOOLKIT_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY
   const env = { ...process.env }
+  // The host process is Electron: the same binary only acts as Node with this flag.
+  if (process.versions?.electron) env.ELECTRON_RUN_AS_NODE = '1'
   if (proxy) {
     env.NODE_USE_ENV_PROXY = '1'
     env.HTTPS_PROXY = proxy

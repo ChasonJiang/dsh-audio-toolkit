@@ -95,6 +95,7 @@ bin/
 | `mcpServerName` | `audio` | 独立 MCP 服务的 `serverInfo.name`；原生工具名固定为 `audio_toolkit_*` |
 | `toolCallTimeoutMs` | `900000` | 单次引擎请求的超时（覆盖响应体读取） |
 | `maxConcurrentCalls` | `2` | 并发上限：异步任务队列 + 原生 TTS/ASR 工具都受它约束 |
+| `setupChoice` | 空 | 首次设置的选择：空 = 未选（面板只显示安装引导）/ `auto` / `manual` |
 | `assetsDir` | 自动 | 运行时资产根。留空 = 自动发现：包内 `bin/`（`link:`/开发）→ `DSH_AUDIO_TOOLKIT_ASSETS` → `~/.dsh/audio-toolkit`（`github:`/npm 安装的下载目标） |
 | `assetsAutoDownload` | `false` | 打开后引擎启动时自动补齐依赖；默认关闭，由面板「运行时依赖 → 安装依赖」手动确认（约 6 GB） |
 | `assetsApiPort` | `8789` | 面板「运行时依赖」用的本地服务端口（只绑 127.0.0.1，被占用时自动顺延） |
@@ -358,8 +359,14 @@ plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.0")       
 plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-toolkit")  # 本地开发
 ```
 
-**首次使用由你确认后再安装**：`github:` / npm 安装只有代码。打开插件面板，最上方是
-**「运行时依赖」** 卡片：
+**首次打开是安装引导**：`github:` / npm 安装只有代码，所以面板在依赖未就绪、且用户还没选择时
+只显示 **「首次设置」** 一页：
+
+- 说明依赖是什么、要占多少空间；
+- **下载代理（可选）** 输入框：没填时会红字提醒——直连 GitHub / Hugging Face 不通时自动安装会失败；
+- 两个按钮：**自动安装（推荐）** 或 **手动下载**。
+
+选完才会显示其余配置项（选择存在 `setupChoice`）。选「自动安装」后出现 **「运行时依赖」** 卡片：
 
 - 状态：`✓ 已就绪` 或 `缺少：audio.cpp 运行时 / TTS 模型 / …`，并显示已占磁盘大小；
 - 选项：勾选 **audio.cpp 运行时**、**GGUF 模型**，按需安装（也可填 `assetsProxy` 走代理）；

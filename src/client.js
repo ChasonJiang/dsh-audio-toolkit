@@ -59,6 +59,22 @@ window.__ModuleLoader__.load({
 			hintTts: 'IndexTTS2.5 fp16 模型与音色',
 			hintAsr: 'SenseVoice 模型与分块策略',
 			hintOutput: '合成产物落在哪里',
+			setupTitle: '首次设置：准备运行时依赖',
+			setupIntro: '安装包只包含代码。audio.cpp 运行时与三个模型（约 6 GB）需要单独准备，装好后才能使用语音工具。',
+			setupStep1: '选择准备方式',
+			setupStep1Body: '自动安装会下载到 ~/.dsh/audio-toolkit；手动下载则由你把文件放到资产目录。',
+			setupProxy: '下载代理（可选）',
+			setupProxyEmpty: '⚠ 还没填代理。直连 GitHub / Hugging Face 不通时自动安装会失败，请填本地代理地址。',
+			setupProxyFilled: '已配置代理，自动安装会走它。',
+			setupAuto: '自动安装（推荐）',
+			setupManual: '手动下载',
+			setupLater: '选择后即可看到其他配置项；依赖未装完时引擎无法启动。',
+			manualTitle: '手动放置依赖',
+			manualBody: '把文件放到下面这些位置，然后点「刷新状态」。',
+			manualRefresh: '刷新状态',
+			manualDirPlaceholder: '已有资产目录（可留空）',
+			assetsNotReady: '依赖尚未安装完成：引擎无法启动，请在上方卡片点「安装所缺依赖」。',
+			assetsProxyMissing: '⚠ 未配置代理，直连 GitHub / Hugging Face 不通时下载会失败（在「首次设置」或 audio.cpp 分组里填 assetsProxy）。',
 			assetsTitle: '运行时依赖',
 			assetsHint: 'audio.cpp、模型与 CUDA 运行时。从 Git / npm 安装时不在包内，需要时在这里安装。',
 			assetsReady: '已就绪',
@@ -111,6 +127,40 @@ window.__ModuleLoader__.load({
 			hintTts: 'IndexTTS2.5 fp16 model and voices',
 			hintAsr: 'SenseVoice model and chunking',
 			hintOutput: 'Where synthesized audio lands',
+			assetsTitle: 'Runtime assets',
+			assetsHint: 'audio.cpp, models and the CUDA runtime. Git/npm installs ship only code; install them here when needed.',
+			assetsReady: 'Ready',
+			assetsMissing: 'Missing',
+			assetsInstall: 'Install assets',
+			assetsInstallAll: 'Install missing assets',
+			assetsCancel: 'Cancel install',
+			assetsRefresh: 'Refresh',
+			assetsInstalling: 'Installing',
+			assetsDone: 'Install finished',
+			assetsFailed: 'Install failed',
+			assetsRelease: 'audio.cpp runtime',
+			assetsModels: 'GGUF models',
+			assetsRoot: 'Asset directory',
+			assetsPortDown: 'Asset service not reachable yet (retry after the plugin finishes reloading)',
+			assetsUnavailable: 'Automatic install is Windows/CUDA only',
+			assetsOptions: 'Install',
+			assetsTarget: 'Platform / backend',
+			assetsNotReady: 'Assets are not installed yet: the engine cannot start. Use “Install missing assets” above.',
+			assetsProxyMissing: '⚠ No proxy configured; downloads fail when GitHub / Hugging Face is unreachable (set assetsProxy).',
+			setupTitle: 'First run: prepare runtime assets',
+			setupIntro: 'The package ships only code. The audio.cpp runtime and three models (~6 GB) must be fetched once before the speech tools work.',
+			setupStep1: 'How do you want to get them?',
+			setupStep1Body: 'Automatic install downloads into ~/.dsh/audio-toolkit; manual means you place the files yourself.',
+			setupProxy: 'Download proxy (optional)',
+			setupProxyEmpty: '⚠ No proxy configured. If GitHub / Hugging Face is unreachable the install will fail — set your local proxy here.',
+			setupProxyFilled: 'Proxy configured; the installer will use it.',
+			setupAuto: 'Install automatically (recommended)',
+			setupManual: 'Download manually',
+			setupLater: 'Other settings appear after you choose; the engine cannot start until the assets are in place.',
+			manualTitle: 'Place the assets manually',
+			manualBody: 'Put the files at the locations below, then press “Refresh”.',
+			manualRefresh: 'Refresh',
+			manualDirPlaceholder: 'Existing asset directory (optional)',
 		}
 
 		/** Form labels the shared SettingsForm renders. */
@@ -289,6 +339,8 @@ window.__ModuleLoader__.load({
 					else specs.push(textSpec(entry.field))
 				}
 			}
+			// Not rendered as a row: the first-run gate writes it from the guide.
+			specs.push(textSpec('setupChoice'))
 			return specs
 		}
 		//#endregion
@@ -307,6 +359,7 @@ window.__ModuleLoader__.load({
 				for (const section of SECTIONS) {
 					for (const entry of section.fields) projected[entry.field] = this.form.field(entry.field)
 				}
+				projected.setupChoice = this.form.field('setupChoice')
 				return projected
 			}
 
@@ -359,6 +412,7 @@ window.__ModuleLoader__.load({
 				this.view = {
 					loading: true,
 					error: '',
+					actionError: '',
 					status: null,
 					options: { release: true, models: true, platform: '', backend: '' },
 				}
@@ -457,15 +511,25 @@ window.__ModuleLoader__.load({
 
 			async post(pathname, body) {
 				if (!this.port) await this.refresh()
-				if (!this.port) return
+				if (!this.port) {
+					this.emit({ actionError: '依赖服务不可达（插件刚重载时稍等再试）' })
+					return
+				}
 				try {
-					await fetch(`http://127.0.0.1:${this.port}${pathname}`, {
+					const response = await fetch(`http://127.0.0.1:${this.port}${pathname}`, {
 						method: 'POST',
 						headers: { 'content-type': 'application/json' },
 						body: JSON.stringify(body ?? {}),
 					})
-				} catch {
-					/* the status poll will surface the failure */
+					if (!response.ok) {
+						const detail = await response.text().catch(() => '')
+						this.emit({ actionError: `安装请求被拒绝：HTTP ${response.status}${detail ? ` · ${detail.slice(0, 160)}` : ''}` })
+						return
+					}
+					this.emit({ actionError: '' })
+				} catch (error) {
+					this.emit({ actionError: `安装请求失败：${error?.message ?? error}` })
+					return
 				}
 				await this.refresh()
 			}
@@ -479,9 +543,76 @@ window.__ModuleLoader__.load({
 			}
 		}
 
+		/**
+		 * First-run gate: the package ships only code, so the user chooses how to
+		 * obtain the runtime assets before the rest of the form is shown.
+		 */
+		function SetupGuide(props) {
+			const { t, state, actions } = props
+			const proxy = String(state.assetsProxy?.text ?? '')
+			const choose = (mode) => {
+				actions.edit('setupChoice', mode)
+				actions.save()
+			}
+			const step = (title, body) =>
+				jsxs(
+					'div',
+					{ style: { marginBottom: 10 }, children: [jsx('p', { style: { margin: '0 0 2px', fontSize: 13, fontWeight: 600 }, children: title }, 't'), jsx('p', { style: STYLE.cardHint, children: body }, 'b')] },
+					title,
+				)
+
+			const proxyRow = jsxs(
+				'div',
+				{
+					style: STYLE.rowStacked,
+					children: [
+						jsxs('div', {
+							style: STYLE.labelLine,
+							children: [
+								jsx('span', { style: STYLE.label, children: t('setupProxy') }, 'label'),
+								jsx('code', { style: STYLE.code, children: 'assetsProxy' }, 'key'),
+							],
+						}, 'line'),
+						jsx('input', {
+							style: STYLE.full,
+							value: proxy,
+							placeholder: 'http://127.0.0.1:7890',
+							onChange: (event) => actions.edit('assetsProxy', event.target.value),
+						}, 'input'),
+						jsx('p', {
+							style: proxy ? STYLE.hint : STYLE.invalid,
+							children: proxy ? t('setupProxyFilled') : t('setupProxyEmpty'),
+						}, 'hint'),
+					],
+				},
+				'proxy',
+			)
+
+			return jsxs(
+				'div',
+				{
+					style: { maxWidth: 720 },
+					children: [
+						jsx('p', { style: { margin: '0 0 4px', fontSize: 15, fontWeight: 600 }, children: t('setupTitle') }, 'title'),
+						jsx('p', { style: { margin: '0 0 14px', fontSize: 12, opacity: 0.75 }, children: t('setupIntro') }, 'intro'),
+						step(t('setupStep1'), t('setupStep1Body')),
+						proxyRow,
+						jsx('div', {
+							style: { ...STYLE.control, marginTop: 12 },
+							children: [
+								jsx(prim.Button, { variant: 'primary', onClick: () => choose('auto'), children: t('setupAuto') }, 'auto'),
+								jsx(prim.Button, { variant: 'outline', onClick: () => choose('manual'), children: t('setupManual') }, 'manual'),
+							],
+						}, 'actions'),
+						jsx('p', { style: { ...STYLE.hint, marginTop: 10 }, children: t('setupLater') }, 'later'),
+					],
+				},
+				'setup',
+			)
+		}
 		/** The "runtime assets" card: status, install options, progress. */
 		function AssetsCard(props) {
-			const { t, state, assets } = props
+			const { t, state, assets, manual, form } = props
 			if (!assets) return null
 			const status = assets.status
 			const install = status?.install
@@ -528,7 +659,8 @@ window.__ModuleLoader__.load({
 					)
 				: null
 
-			const failure = install?.error && !running ? jsx('p', { style: STYLE.invalid, children: install.error }, 'error') : null
+			const failureText = assets.actionError || (install?.error && !running ? install.error : '')
+			const failure = failureText ? jsx('p', { style: STYLE.invalid, children: failureText }, 'error') : null
 
 			const options = jsxs(
 				'div',
@@ -577,18 +709,46 @@ window.__ModuleLoader__.load({
 				'target',
 			)
 
-			const actions = jsxs(
-				'div',
-				{
-					style: STYLE.control,
-					children: [
-						jsx(prim.Button, { variant: 'primary', disabled: ready || running || !writable || !windows, onClick: () => assets.install(), children: t('assetsInstallAll') }, 'install'),
-						jsx(prim.Button, { variant: 'outline', disabled: !running, onClick: () => assets.cancel(), children: t('assetsCancel') }, 'cancel'),
-						jsx(prim.Button, { variant: 'outline', onClick: () => assets.refresh(), children: t('assetsRefresh') }, 'refresh'),
-					],
-				},
-				'actions',
-			)
+			// Manual mode: the user drops the files in place and only refreshes.
+			const manualInfo = manual
+				? jsxs(
+						'div',
+						{
+							style: STYLE.rowStacked,
+							children: [
+								jsx('p', { style: { ...STYLE.hint, fontWeight: 600 }, children: t('manualTitle') }, 'title'),
+								jsx('p', { style: STYLE.hint, children: t('manualBody') }, 'body'),
+								jsx('code', { style: STYLE.code, children: `${status?.root ?? ''}/bin/audio.cpp` }, 'bin'),
+								jsx('code', { style: STYLE.code, children: `${status?.root ?? ''}/bin/models/…` }, 'models'),
+							],
+						},
+						'manual',
+					)
+				: null
+
+			const warn =
+				!manual && !ready && status
+					? jsx('p', { style: STYLE.invalid, children: status.proxy ? t('assetsNotReady') : `${t('assetsNotReady')} ${t('assetsProxyMissing')}` }, 'warn')
+					: null
+
+			const actions = manual
+				? jsxs(
+						'div',
+						{ style: { ...STYLE.control, marginTop: 8 }, children: [jsx(prim.Button, { variant: 'outline', onClick: () => assets.refresh(), children: t('manualRefresh') }, 'refresh')] },
+						'actions',
+					)
+				: jsxs(
+						'div',
+						{
+							style: STYLE.control,
+							children: [
+								jsx(prim.Button, { variant: 'primary', disabled: ready || running || !writable || !windows, onClick: () => assets.install(), children: t('assetsInstallAll') }, 'install'),
+								jsx(prim.Button, { variant: 'outline', disabled: !running, onClick: () => assets.cancel(), children: t('assetsCancel') }, 'cancel'),
+								jsx(prim.Button, { variant: 'outline', onClick: () => assets.refresh(), children: t('assetsRefresh') }, 'refresh'),
+							],
+						},
+						'actions',
+					)
 
 			const note = status
 				? jsx('p', { style: STYLE.hint, children: `${t('assetsRoot')}: ${status.root}${windows ? '' : ` · ${t('assetsUnavailable')}`}` }, 'note')
@@ -601,10 +761,12 @@ window.__ModuleLoader__.load({
 					children: [
 						jsxs('div', { style: STYLE.cardHead, children: [jsx('p', { style: STYLE.cardTitle, children: t('assetsTitle') }, 'title'), badge, sizes] }, 'head'),
 						jsx('p', { style: STYLE.cardHint, children: t('assetsHint') }, 'hint'),
-						options,
-						selects,
+						manual ? null : options,
+						manual ? null : selects,
 						progress,
+						warn,
 						failure,
+						manualInfo,
 						actions,
 						note,
 					],
@@ -921,7 +1083,8 @@ window.__ModuleLoader__.load({
 					? props.useAudioToolkitAssets((snapshot) => snapshot)
 					: null
 			if (assets && typeof assets.setPort === 'function') assets.setPort(state.assetsApiPort?.text)
-			const assetsCard = jsx(AssetsCard, { t, state, assets }, 'assets')
+			const setupChoice = String(state.setupChoice?.text ?? '')
+			const assetsCard = jsx(AssetsCard, { t, state, assets, manual: setupChoice === 'manual', form: props }, 'assets')
 
 			const header = jsxs(
 				'div',
@@ -934,6 +1097,23 @@ window.__ModuleLoader__.load({
 				},
 				'header',
 			)
+
+			// First run: nothing else is usable until the user picks how to obtain
+			// the runtime assets, so show only the guide (hooks above stay stable).
+			const assetsReady = Boolean(assets?.status?.ready)
+			if (assets && assets.status && !assetsReady && !setupChoice) {
+				return jsx(prim.SettingsForm, {
+					labels: formLabels(t),
+					state,
+					onSave: props.save,
+					onDiscard: props.discard,
+					children: jsxs(
+						'div',
+						{ children: [header, jsx(SetupGuide, { t, state, actions: props }, 'setup')] },
+						'fields',
+					),
+				})
+			}
 
 			const strip = jsxs(
 				'div',

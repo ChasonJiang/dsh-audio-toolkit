@@ -147,6 +147,10 @@ function buildConfig() {
     engineHost: Schema.string().default('127.0.0.1').description('引擎监听地址，保持 127.0.0.1 即可。').volatile(),
     enginePort: Schema.natural().min(1).max(65535).default(8788).description('引擎端口；被占用时改这里。').volatile(),
 
+    setupChoice: Schema.union(['', 'auto', 'manual'])
+      .default('')
+      .description('首次设置：用户选择自动安装还是手动下载依赖。空 = 还没选，面板只显示安装引导。')
+      .volatile(),
     assetsDir: Schema.string()
       .default('')
       .description('运行时资产根目录（bin/audio.cpp + bin/models）。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → 用户目录 ~/.dsh/audio-toolkit。')
@@ -266,6 +270,7 @@ const CONFIG_KEYS = [
   'engineAutoStart',
   'engineHost',
   'enginePort',
+  'setupChoice',
   'assetsDir',
   'assetsAutoDownload',
   'assetsProxy',

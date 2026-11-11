@@ -217,7 +217,7 @@ async function main() {
         const flat = paths.filter((path) => !path.includes('.'))
         check(
           'panel form exposes flat fields',
-          form !== undefined && flat.length === 36,
+          form !== undefined && flat.length === 37,
           `${flat.length} top-level fields`,
         )
         check('panel form keeps them multi-segment free', paths.length === flat.length, paths.filter((p) => p.includes('.')).slice(0, 3).join(', '))

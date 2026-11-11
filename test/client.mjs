@@ -256,9 +256,33 @@ async function main() {
     labels.filter((l) => l.startsWith('t:assets')).join(', '),
   )
 
+  // First run: assets missing and no choice yet -> only the setup guide renders.
+  const setupTree = component({
+    view: 'page',
+    t,
+    useAudioToolkitCard: (selector) =>
+      selector({ ...projection, setupChoice: { text: '', overridden: false, invalid: false } }),
+    useAudioToolkitAssets: (selector) =>
+      selector({
+        ...assetsView,
+        status: { ...assetsView.status, ready: false, missing: ['audio.cpp 运行时'], sizes: { release: 0, models: 0 } },
+      }),
+    save: () => {},
+    discard: () => {},
+    edit: () => {},
+  })
+  const setupLabels = collectText(setupTree)
+  check(
+    'first-run guide gates the form',
+    setupLabels.some((label) => label.includes('t:setupAuto')) &&
+      setupLabels.some((label) => label.includes('t:setupManual')),
+    setupLabels.filter((label) => label.startsWith('t:setup')).join(', '),
+  )
+  check('no config rows before choosing', countType(setupTree, 'Input') === 0, `${countType(setupTree, 'Input')} inputs`)
+
   // 4. staged values must match the host Config types (DSH writes them verbatim)
   const specOf = (field) => formSpecs.find((spec) => spec.field === field)
-  check('one spec per editable Config field', formSpecs.length === 36, `${formSpecs.length} specs`)
+  check('one spec per editable Config field', formSpecs.length === 37, `${formSpecs.length} specs`)
   for (const field of ['extraArgs', 'ttsSessionOptions', 'asrSessionOptions']) {
     // The host declares these as `Schema.string()`; an array here would be
     // persisted and then fail schema validation on the next load.

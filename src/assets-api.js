@@ -17,7 +17,12 @@ import { join } from 'node:path'
 import { assetsReady, cancelInstall, installSnapshot, missingAssets, startInstall } from '../mcp/assets.mjs'
 import { TOOLKIT_VERSION } from './config.js'
 
-const LOOPBACK_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/
+/**
+ * Origins allowed to drive installs: the desktop renderer (dsh-app://app) and the
+ * loopback web UI. Anything else (including 
+ull) is rejected.
+ */
+const ALLOWED_ORIGIN = /^(http:\/\/(127\.0\.0\.1|localhost)(:\d+)?|dsh-app:\/\/[a-z0-9-]+)$/i
 const MAX_BODY = 64 * 1024
 
 /** Directory size, cached briefly: it walks the 5 GB model tree. */
@@ -75,9 +80,9 @@ function readBody(req) {
 export function createAssetsApi({ getConfig, log = () => {} }) {
   const server = createServer(async (req, res) => {
     const origin = String(req.headers.origin ?? '')
-    const sameOrigin = !origin || LOOPBACK_ORIGIN.test(origin)
+    const sameOrigin = !origin || ALLOWED_ORIGIN.test(origin)
     const cors = {
-      'access-control-allow-origin': origin && LOOPBACK_ORIGIN.test(origin) ? origin : '*',
+      'access-control-allow-origin': origin && ALLOWED_ORIGIN.test(origin) ? origin : '*',
       'access-control-allow-methods': 'GET,POST,OPTIONS',
       'access-control-allow-headers': 'content-type',
     }
