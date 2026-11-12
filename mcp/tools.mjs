@@ -6,6 +6,7 @@
  * tool call never spawns an inference process.
  */
 
+import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import {
@@ -224,7 +225,9 @@ export async function ttsSpeak(params, cfg, context = {}) {
   if (durationScale !== undefined) options.duration_scale = durationScale
 
   const seed = optionalNumber(params.seed, 0, 2_147_483_647)
-  const workDir = join(cfg.output.tmp, `tts-ref-${Date.now()}-${process.pid}`)
+  // A UUID, not timestamp+pid: two concurrent calls in the same millisecond used
+  // to share one scratch directory and delete each other's converted voice.
+  const workDir = join(cfg.output.tmp, `tts-ref-${randomUUID()}`)
   try {
     // A reference clip may be any container or sample rate. The engine decodes
     // WAV only, so normalize once (16 kHz mono) and keep the caller's path in the
@@ -291,7 +294,7 @@ export async function asrTranscribe(params, cfg, context = {}) {
   // Tags (<|event|>/<|emotion|>) are never requested: the toolkit reports plain
   // transcripts, so the engine's `keep_tags` option is left at its default.
 
-  const workDir = join(cfg.output.tmp, `asr-src-${Date.now()}-${process.pid}`)
+  const workDir = join(cfg.output.tmp, `asr-src-${randomUUID()}`)
   try {
     // One normalization step serves both consumers: the engine only decodes WAV,
     // and its VAD chunking wants 16 kHz mono. Anything else (mp3/flac/44.1 kHz…)
@@ -613,6 +616,11 @@ export async function audioStatus(params, cfg, context = {}) {
     ),
     audio_cpp: {
       backend: cfg.audioCpp.backend,
+      // A config copied from another OS can still say `cuda`; report both the
+      // effective value and the fact that a fallback happened.
+      backend_requested: cfg.audioCpp.backendRequested || null,
+      backend_fallback: cfg.audioCpp.backendFallback === true,
+      backend_supported: cfg.audioCpp.backendSupported,
       device: cfg.audioCpp.device,
       // What transcoding would actually run (configured path or PATH fallback).
       ffmpeg: resolveFfmpeg(cfg) ?? null,

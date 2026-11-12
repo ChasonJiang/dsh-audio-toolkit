@@ -6,7 +6,7 @@
  * `node:zlib` gunzips, the rest is a 512-byte block walk.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 
@@ -26,12 +26,15 @@ export function readTarEntries(tar) {
     const name = readString(header, 0, 100)
     const prefix = readString(header, 345, 155)
     const size = Number.parseInt(readString(header, 124, 12) || '0', 8)
+    // The mode field is octal; keeping it preserves the executable bit of the
+    // POSIX audio.cpp binaries (writeFileSync alone always produces 0644).
+    const mode = Number.parseInt(readString(header, 100, 8) || '0', 8)
     const type = String.fromCharCode(header[156] || 48)
     const dataStart = offset + 512
     const data = tar.subarray(dataStart, dataStart + size)
     const full = prefix ? `${prefix}/${name}` : name
     // '0' / '\0' are regular files; '5' dirs, 'x'/'g' pax, '2' links are skipped.
-    if ((type === '0' || type === '\0') && full && !full.endsWith('/')) entries.push({ name: full, data })
+    if ((type === '0' || type === '\0') && full && !full.endsWith('/')) entries.push({ name: full, data, mode })
     offset = dataStart + Math.ceil(size / 512) * 512
   }
   return entries
@@ -64,6 +67,14 @@ export function extractTarGz(buffer, destDir, options = {}) {
     const target = options.flatten ? join(destDir, relative.split('/').pop()) : join(destDir, ...relative.split('/'))
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, entry.data)
+    if (process.platform !== 'win32' && Number.isFinite(entry.mode) && entry.mode > 0) {
+      try {
+        // Keep only permission bits; a defensive default if the archive says 0.
+        chmodSync(target, entry.mode & 0o777)
+      } catch {
+        /* a read-only destination fails later with a clearer message */
+      }
+    }
     written.push(target)
   }
   return written

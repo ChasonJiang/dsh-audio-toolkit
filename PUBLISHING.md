@@ -14,7 +14,7 @@ bugs.url         https://github.com/OWNER/dsh-audio-toolkit/issues
 ```
 
 Replace it with your GitHub account/org, then update the install examples in
-`README.md` (`dsh-audio-toolkit@0.8.0`) once the package is actually published.
+`README.md` (`dsh-audio-toolkit@0.8.1`) once the package is actually published.
 
 Optional: `LICENSE` says “dsh-audio-toolkit contributors”; put your name there if you prefer.
 
@@ -39,11 +39,11 @@ grep -rn "C:\\\\Users" --include="*.md" --include="*.json" --include="*.yml" .
 ## 3. Commit and push
 
 ```bash
-git commit -m "dsh-audio-toolkit 0.8.0"
+git commit -m "dsh-audio-toolkit 0.8.1"
 git branch -M main
 git remote add origin https://github.com/OWNER/dsh-audio-toolkit.git
 git push -u origin main
-git tag v0.8.0 && git push origin v0.7.0
+git tag v0.8.1 && git push origin v0.8.1
 ```
 
 Create a GitHub release from the tag and paste the relevant `CHANGELOG.md` section.
@@ -59,7 +59,7 @@ The package name `dsh-audio-toolkit` must be available (check `npm view dsh-audi
 After publishing, DSH installs it with:
 
 ```text
-plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.0")
+plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.1")
 ```
 
 ## 5. About `github:` install specs
@@ -67,7 +67,7 @@ plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.0")
 `package.json` is at the repository root, so DSH can install straight from GitHub:
 
 ```text
-plugin_manager(action="install_bundle", target="github:OWNER/dsh-audio-toolkit#v0.8.0")
+plugin_manager(action="install_bundle", target="github:OWNER/dsh-audio-toolkit#v0.8.1")
 ```
 
 npm publishing (§4) is still recommended for version pinning and update discovery.

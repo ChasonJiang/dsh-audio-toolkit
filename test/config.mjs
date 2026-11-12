@@ -17,11 +17,15 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
+  ALL_BACKENDS,
   DEFAULT_CONFIG,
   FFMPEG_BINARY,
   SERVER_BINARY,
   ffmpegFallbackPath,
   findOnPath,
+  normalizeBackend,
+  platformBackendDefault,
+  supportedBackends,
   STATE_CONFIG_PATH,
   STATE_DIR,
   STATE_ENGINE_CONFIG_PATH,
@@ -79,6 +83,42 @@ async function main() {
   )
   check('default engine url', defaults.engine.url === 'http://127.0.0.1:8788', defaults.engine.url)
   check('default engine server exe', defaults.engine.exePath.endsWith(join('audio.cpp', SERVER_BINARY)), defaults.engine.exePath)
+  // Backend defaults are platform-specific; resolving `cuda` on a Mac used to make
+  // the engine fail before it ever listened.
+  check(
+    'backend default follows the platform',
+    resolveConfig({}, { platform: 'darwin' }).audioCpp.backend === 'metal' &&
+      resolveConfig({}, { platform: 'win32' }).audioCpp.backend === 'cuda' &&
+      resolveConfig({}, { platform: 'linux' }).audioCpp.backend === 'cpu',
+    `${resolveConfig({}, { platform: 'darwin' }).audioCpp.backend}/${resolveConfig({}, { platform: 'linux' }).audioCpp.backend}`,
+  )
+  check(
+    'unsupported backend falls back per platform',
+    (() => {
+      const mac = resolveConfig({ backend: 'cuda' }, { platform: 'darwin' })
+      return mac.audioCpp.backend === 'metal' && mac.audioCpp.backendRequested === 'cuda' && mac.audioCpp.backendFallback === true
+    })(),
+    JSON.stringify(resolveConfig({ backend: 'cuda' }, { platform: 'darwin' }).audioCpp),
+  )
+  check(
+    'supported backend is kept as chosen',
+    resolveConfig({ backend: 'cpu' }, { platform: 'darwin' }).audioCpp.backend === 'cpu' &&
+      resolveConfig({ backend: 'metal' }, { platform: 'darwin' }).audioCpp.backend === 'metal' &&
+      resolveConfig({ backend: 'rocm' }, { platform: 'linux' }).audioCpp.backend === 'rocm',
+  )
+  check(
+    'normalizeBackend is the single source of truth',
+    normalizeBackend('', 'darwin').backend === 'metal' &&
+      normalizeBackend('CUDA', 'darwin').fallback === true &&
+      platformBackendDefault('win32') === 'cuda' &&
+      supportedBackends('darwin').join(',') === 'metal,cpu' &&
+      supportedBackends('linux').includes('rocm') &&
+      ALL_BACKENDS.includes('metal'),
+  )
+  check(
+    'engine config uses the platform-effective backend',
+    toEngineConfig(resolveConfig({ backend: 'cuda' }, { platform: 'darwin' })).backend === 'metal',
+  )
   // CI runs without the multi-gigabyte release/models. Asset-dependent checks are
   // reported as SKIP there instead of failing, so a fresh clone stays green.
   // ffmpeg is required: on machines that only have a profile-level ffmpegPath the
@@ -208,10 +248,17 @@ async function main() {
   } else {
     check('plugin exports a Config schema', Config !== undefined)
     if (Config) {
-      const raw = Config({ ttsModel: 'X:/models/tts.gguf', backend: 'vulkan', engineEnabled: false })
+      const raw = Config({ ttsModel: 'X:/models/tts.gguf', backend: 'cpu', engineEnabled: false })
       check('volatile leaf fields parse into refs', typeof raw?.ttsModel?.get === 'function', 'ttsModel.get() present')
       const resolved = resolveConfig(raw)
-      check('volatile config resolves', resolved.tts.model.replace(/\\/g, '/').endsWith('models/tts.gguf') && resolved.audioCpp.backend === 'vulkan')
+      check(
+        'volatile config resolves',
+        resolved.tts.model.replace(/\\/g, '/').endsWith('models/tts.gguf') && resolved.audioCpp.backend === 'cpu',
+      )
+      // Every backend the release ships must survive schema validation; the
+      // platform fallback belongs to resolveConfig, not to the schema.
+      const metalRaw = Config({ backend: 'metal' })
+      check('schema accepts metal/rocm backends', metalRaw?.backend?.get() === 'metal')
       check('volatile engine flag resolves', resolved.engine.enabled === false)
 
       const settings = await importFromProfile('@deepseek-ai/dsh-settings/lib/types/schema.js')
@@ -312,6 +359,25 @@ async function main() {
       JSON.stringify(definitions[1].parameters.required) === JSON.stringify(['audio_path']),
     `${JSON.stringify(definitions[0].parameters.required)} / ${JSON.stringify(definitions[1].parameters.required)}`,
   )
+
+  // Some loader/bundle combinations lose named exports, so `ctx.tools` throws
+  // even though the service exists. Registration falls back to `ctx.get`.
+  {
+    const { registerHostTools } = await import('../src/host-tools.js')
+    const seen = []
+    const guardedCtx = {
+      get: (name) => (name === 'tools' ? { register: (definition) => seen.push(definition.name) } : undefined),
+      get tools() {
+        throw new Error('cannot get property "tools" without inject')
+      },
+    }
+    const names = registerHostTools(guardedCtx, () => resolveConfig({}))
+    check(
+      'tools register through ctx.get when the injected getter throws',
+      names.length === 7 && seen.length === 7,
+      `${names.length}/${seen.length}`,
+    )
+  }
   check(
     'output renders one JSON text block',
     JSON.stringify(definitions[0].output.render({}, { ok: 1 })) === JSON.stringify([{ type: 'text', text: JSON.stringify({ ok: 1 }, null, 2) }]),
@@ -481,6 +547,35 @@ async function main() {
     check('the stale manager still reports not running', managed.running === false)
     const fixed = new AudioEngine({ config: live, log: () => {} })
     check('the legacy config constructor still works', fixed.url === managed.url, fixed.url)
+
+    // First launch: boot auto-start, the panel button and a config restart can
+    // overlap. They must run one at a time or two servers bind the same port.
+    const serial = new AudioEngine({ config: resolveConfig({}), log: () => {} })
+    let active = 0
+    let peak = 0
+    let operations = 0
+    serial.startEngine = async () => {
+      active += 1
+      peak = Math.max(peak, active)
+      operations += 1
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 30))
+      active -= 1
+      return { started: true, reused: false }
+    }
+    serial.stopEngine = async () => {
+      active += 1
+      peak = Math.max(peak, active)
+      operations += 1
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 10))
+      active -= 1
+      return { stopped: true }
+    }
+    const outcomes = await Promise.all([serial.start(), serial.start(), serial.restart()])
+    check(
+      'engine lifecycle operations are serialized',
+      peak === 1 && operations === 4 && outcomes.length === 3,
+      `peak=${peak} operations=${operations}`,
+    )
     const { engineSettingsChanged } = await import('../src/engine.js')
     check(
       'a panel edit of engine settings is detected as a restart trigger',

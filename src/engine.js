@@ -44,6 +44,35 @@ function rotateLog(path) {
   }
 }
 
+/**
+ * Engines with a possible live child process.
+ *
+ * A DSH exit may happen while `start()` is still waiting for `/health`; the
+ * async `ctx.effect` disposer then does not get to run and the child survives,
+ * holding the port for the next launch (which then "reuses" a half-dead engine).
+ * The synchronous `exit` hook kills it.
+ */
+const liveEngines = new Set()
+let exitHookInstalled = false
+
+/** Track one engine for the process exit hook. */
+function trackEngine(engine) {
+  liveEngines.add(engine)
+  if (exitHookInstalled) return
+  exitHookInstalled = true
+  process.once('exit', () => {
+    for (const item of liveEngines) {
+      const child = item.child
+      if (!child || child.exitCode !== null) continue
+      try {
+        child.kill()
+      } catch {
+        /* already gone */
+      }
+    }
+  })
+}
+
 /** Keys whose change requires restarting the engine. */
 const RESTART_KEYS = [
   'engineHost',
@@ -67,18 +96,42 @@ const RESTART_KEYS = [
   'asrSessionOptions',
 ]
 
-/** GET a URL and resolve to the parsed JSON body, or undefined on failure. */
+/**
+ * GET a URL and resolve to the parsed JSON body, or undefined on failure.
+ *
+ * This is used by engine start/stop/restart, so it must settle in **every** case:
+ * a socket that is closed mid-response, a peer that trickles bytes forever, and
+ * an already-rejected request all resolve `undefined` instead of leaving the
+ * lifecycle await pending (`engine.start()` would otherwise hang before its own
+ * readiness deadline could fire).
+ */
 export function httpGetJson(url, timeoutMs = 1500) {
   return new Promise((resolvePromise) => {
+    const budget = Math.max(1, Number(timeoutMs) || 1)
     let settled = false
+    let req
+    let timer
     const done = (value) => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       resolvePromise(value)
     }
-    let req
+    // A hard overall deadline, not just an idle-socket timeout: `timeout` only
+    // fires when the socket is quiet, so a peer sending a byte per second could
+    // keep a health check alive indefinitely.
+    timer = setTimeout(() => {
+      try {
+        req?.destroy()
+      } catch {
+        /* already gone */
+      }
+      done(undefined)
+    }, budget)
+    timer.unref?.()
+
     try {
-      req = request(url, { method: 'GET', timeout: timeoutMs }, (res) => {
+      req = request(url, { method: 'GET', timeout: budget }, (res) => {
         let body = ''
         res.setEncoding('utf8')
         res.on('data', (chunk) => {
@@ -92,15 +145,31 @@ export function httpGetJson(url, timeoutMs = 1500) {
             done(undefined)
           }
         })
+        // An incomplete response never emits `end`; without these handlers the
+        // promise above would stay pending forever.
+        res.on('error', () => done(undefined))
+        res.on('aborted', () => done(undefined))
+        res.on('close', () => {
+          if (!res.complete) done(undefined)
+        })
       })
     } catch {
-      return done(undefined)
+      done(undefined)
+      return
     }
     req.on('timeout', () => {
-      req.destroy()
+      try {
+        req.destroy()
+      } catch {
+        /* already gone */
+      }
       done(undefined)
     })
     req.on('error', () => done(undefined))
+    req.on('close', () => {
+      // The request closed before a response arrived (connection refused/reset).
+      if (!req.res || !req.res.complete) done(undefined)
+    })
     req.end()
   })
 }
@@ -119,6 +188,29 @@ export class AudioEngine {
     this.child = undefined
     this.startedAt = 0
     this.lastError = ''
+    /**
+     * Tail of the lifecycle chain. Engine boot, a panel start, a config-driven
+     * restart and plugin disposal can arrive in the same tick (especially on the
+     * first launch); running them concurrently used to spawn two servers on the
+     * same port and orphan one of them.
+     */
+    this.lifecycle = Promise.resolve()
+    trackEngine(this)
+  }
+
+  /**
+   * Run one lifecycle operation after the previous one settled.
+   * @template T
+   * @param {() => Promise<T>} operation
+   * @returns {Promise<T>}
+   */
+  runExclusive(operation) {
+    const next = this.lifecycle.then(operation, operation)
+    this.lifecycle = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
   }
 
   /** Effective config, re-read on every access so panel edits apply live. */
@@ -147,14 +239,26 @@ export class AudioEngine {
 
   /**
    * Start the engine if it is not already reachable.
+   * @param {{force?: boolean}} [options] `force` starts even when the panel flag
+   *   says disabled (boot auto-start and the explicit start button).
    * @returns {Promise<{started: boolean, reused: boolean, error?: string}>}
    */
-  async start() {
+  start(options = {}) {
+    return this.runExclusive(() => this.startEngine(options))
+  }
+
+  /**
+   * Implementation of `start()`; always runs inside the lifecycle chain.
+   * @param {{force?: boolean}} [options]
+   */
+  async startEngine({ force = false } = {}) {
+    // Re-register in case a previous stop removed this engine from the hook set.
+    trackEngine(this)
     // Snapshot once: a panel edit arriving mid-start must not mix two configs
     // (for example the old port with the new binary path).
     const config = this.config
     const url = config.engine.url
-    if (!config.engine.enabled) {
+    if (!config.engine.enabled && !force) {
       return { started: false, reused: false, error: '引擎已在配置中禁用（engineEnabled=false）' }
     }
     if (this.running) {
@@ -200,8 +304,27 @@ export class AudioEngine {
     mkdirSync(config.output.tmp, { recursive: true })
     rotateLog(config.engine.logPath)
     const logStream = createWriteStream(config.engine.logPath, { flags: 'a' })
+    // `pipe()` ends the destination when the child's stdout closes, while the
+    // exit handler below may still want to append a footer. Writing after `end`
+    // raises an unhandled stream error (and can crash the host), so every write
+    // goes through a guard and the disk-full error is swallowed.
+    logStream.on('error', () => {})
+    const writeLog = (text) => {
+      try {
+        if (!logStream.writableEnded && !logStream.destroyed) logStream.write(text)
+      } catch {
+        /* logging must never take the host down */
+      }
+    }
+    const endLog = () => {
+      try {
+        if (!logStream.writableEnded && !logStream.destroyed) logStream.end()
+      } catch {
+        /* already closed by the pipe */
+      }
+    }
     const stamp = new Date().toISOString()
-    logStream.write(`\n=== ${stamp} start ${exePath} --config ${configPath} ===\n`)
+    writeLog(`\n=== ${stamp} start ${exePath} --config ${configPath} ===\n`)
 
     const env = {
       ...process.env,
@@ -231,18 +354,21 @@ export class AudioEngine {
       })
     } catch (error) {
       this.lastError = `启动 audiocpp_server 失败：${error.message}`
-      logStream.end()
+      endLog()
       this.log(this.lastError)
       return { started: false, reused: false, error: this.lastError }
     }
 
-    child.stdout?.pipe(logStream)
-    child.stderr?.pipe(logStream)
+    // Both streams share one file; `end: false` keeps whichever closes first from
+    // ending the destination while the other still has buffered output. The log
+    // is closed on `close` (after both stdio streams are done), not on `exit`.
+    child.stdout?.pipe(logStream, { end: false })
+    child.stderr?.pipe(logStream, { end: false })
+    child.on('close', () => endLog())
     let spawnError
     child.on('exit', (code, signal) => {
       const reason = signal ? `signal ${signal}` : `code ${code}`
-      logStream.write(`=== engine exited (${reason}) ===\n`)
-      logStream.end()
+      writeLog(`=== engine exited (${reason}) ===\n`)
       if (this.child === child) this.child = undefined
       this.log(`audio.cpp 引擎已退出（${reason}）`)
     })
@@ -252,7 +378,7 @@ export class AudioEngine {
       spawnError = error
       this.lastError = `引擎进程错误：${error.message}`
       this.log(this.lastError)
-      logStream.end()
+      endLog()
     })
 
     this.child = child
@@ -277,7 +403,7 @@ export class AudioEngine {
     }
     this.lastError = `引擎在 ${READY_TIMEOUT_MS / 1000}s 内没有响应 /health`
     this.log(this.lastError)
-    await this.stop()
+    await this.stopEngine()
     return { started: false, reused: false, error: this.lastError }
   }
 
@@ -295,15 +421,22 @@ export class AudioEngine {
     return true
   }
 
-  /** Stop the engine we own. */
-  async stop() {
+  /** Stop the engine we own (serialized behind any in-flight start/restart). */
+  stop() {
+    return this.runExclusive(() => this.stopEngine())
+  }
+
+  /** Implementation of `stop()`; always runs inside the lifecycle chain. */
+  async stopEngine() {
     const child = this.child
     if (!child) {
       // Another instance (or a previous run) may still hold the port.
       if (await this.reachable()) {
         this.log('引擎可达但不属于本实例，无法停止（由其他进程持有该端口）')
+        liveEngines.delete(this)
         return { stopped: false, reason: 'not-owned' }
       }
+      liveEngines.delete(this)
       return { stopped: false, reason: 'not-running' }
     }
     this.child = undefined
@@ -329,16 +462,19 @@ export class AudioEngine {
     }
     // Let the listening socket close before a restart tries to bind it.
     await this.waitForPortFree(5000)
+    liveEngines.delete(this)
     this.log('audio.cpp 引擎已停止')
     return { stopped: true }
   }
 
   /** Restart with the current config. */
-  async restart() {
-    await this.stop()
-    // Give the port a moment to be released.
-    await new Promise((r) => setTimeout(r, 300))
-    return this.start()
+  restart() {
+    return this.runExclusive(async () => {
+      await this.stopEngine()
+      // Give the port a moment to be released.
+      await new Promise((r) => setTimeout(r, 300))
+      return this.startEngine()
+    })
   }
 }
 

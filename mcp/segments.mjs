@@ -13,6 +13,7 @@
  * Costs one short CLI run for the VAD plus one warm engine request per sentence.
  */
 
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { EngineError } from './engine.mjs'
@@ -140,7 +141,9 @@ export async function transcribeWithTimestamps({ audioPath, cfg, language, trans
   }
   const durationMs = (monoSamples.length / 16000) * 1000
 
-  const workDir = join(cfg.output.tmp, `segments-${Date.now()}`)
+  // Unique per call: two timestamp requests in the same millisecond would
+  // otherwise write and then delete each other's slices.
+  const workDir = join(cfg.output.tmp, `segments-${randomUUID()}`)
   mkdirSync(workDir, { recursive: true })
   try {
     const regions = await detectSpeechRegions(monoSamples, cfg, workDir, signal)

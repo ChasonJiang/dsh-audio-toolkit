@@ -52,12 +52,32 @@ function log(message) {
   process.stderr.write(`[audio-toolkit] ${message}\n`)
 }
 
-/** Write one JSON-RPC message to stdout, honoring backpressure. */
+/**
+ * Write one JSON-RPC message to stdout, honoring backpressure.
+ *
+ * A closed/ended stdout must settle instead of waiting for a `drain` that never
+ * comes; otherwise a tool call's response is queued forever and the client sees
+ * a hung call rather than a dead server.
+ */
 function send(message) {
   return new Promise((resolvePromise) => {
-    const ok = process.stdout.write(`${JSON.stringify(message)}\n`)
-    if (ok) resolvePromise()
-    else process.stdout.once('drain', resolvePromise)
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolvePromise()
+    }
+    const timer = setTimeout(finish, 5000)
+    timer.unref?.()
+    try {
+      if (process.stdout.destroyed || process.stdout.writableEnded) return finish()
+      const ok = process.stdout.write(`${JSON.stringify(message)}\n`)
+      if (ok) finish()
+      else process.stdout.once('drain', finish)
+    } catch {
+      finish()
+    }
   })
 }
 
@@ -81,10 +101,19 @@ function negotiateProtocol(requested) {
   return LATEST_PROTOCOL
 }
 
+/** Stringify a payload, degrading to an error object instead of throwing. */
+function safeJson(value) {
+  try {
+    return JSON.stringify(value ?? null, null, 2)
+  } catch (error) {
+    return JSON.stringify({ error: `结果无法序列化为 JSON：${error instanceof Error ? error.message : String(error)}` }, null, 2)
+  }
+}
+
 /** Build a tool result with one JSON text block. */
 function toolResult(payload) {
   return {
-    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+    content: [{ type: 'text', text: safeJson(payload) }],
     isError: false,
   }
 }
@@ -93,7 +122,7 @@ function toolResult(payload) {
 function toolError(message, data) {
   const payload = { error: message, ...(data === undefined ? {} : { details: data }) }
   return {
-    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+    content: [{ type: 'text', text: safeJson(payload) }],
     isError: true,
   }
 }
@@ -112,9 +141,33 @@ async function handleToolsCall(params, requestId) {
     return toolError(`未知工具：${String(name)}`, { available: TOOLS.map((item) => item.name) })
   }
   // Re-read on every call: the plugin rewrites state/config.json on a panel edit.
-  const { config, source } = loadStateConfig()
+  // A malformed/unreadable state file must produce a tool error, not a rejected
+  // `tools/call` that leaves the client waiting for a response that never comes.
+  let config
+  let source
+  try {
+    ;({ config, source } = loadStateConfig())
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`无法读取配置（${prettyPath(String(source ?? ''))}）：${message}`)
+    return toolError(`无法读取插件配置：${message}`)
+  }
+
   const controller = new AbortController()
   if (requestId !== undefined) inflight.set(requestId, controller)
+  // Belt and braces: the engine HTTP client already enforces this deadline, but a
+  // future handler that ignores its signal must still settle the JSON-RPC call.
+  const timeoutMs = Math.max(1, Number(config.mcp.toolCallTimeoutMs) || 1)
+  const watchdog = setTimeout(() => {
+    controller.abort(
+      new Error(
+        `工具调用超过 ${Math.round((timeoutMs + 5000) / 1000)}s 未返回（可能引擎未启动、模型仍在加载或请求排队过久）。` +
+          '请检查 state/engine.log 与插件面板的引擎状态。',
+      ),
+    )
+  }, timeoutMs + 5000)
+  watchdog.unref?.()
+
   const context = { version: TOOLKIT_VERSION, configSource: source, jobs: jobQueue, signal: controller.signal }
   try {
     const result = await slots.run(
@@ -129,6 +182,7 @@ async function handleToolsCall(params, requestId) {
     log(`${tool.name} failed: ${message}`)
     return toolError(message, error?.details)
   } finally {
+    clearTimeout(watchdog)
     if (requestId !== undefined) inflight.delete(requestId)
   }
 }
@@ -215,6 +269,9 @@ async function dispatch(message) {
 
 /** Read one line of JSON-RPC from stdin. */
 function start() {
+  // A client that disconnects closes the pipe; an EPIPE on stdout must not crash
+  // the process before the stdin close handler can shut it down cleanly.
+  process.stdout.on('error', () => {})
   const { config, source } = loadStateConfig()
   // The panel's `mcpServerName` names this service for standalone MCP clients.
   serverInfo = { ...serverInfo, name: config.mcp.serverName || serverInfo.name }
@@ -224,17 +281,24 @@ function start() {
 
   // One in-process queue for this server; jobs are independent of the RPC calls
   // that created them, so the client can poll instead of waiting.
-  jobQueue = new JobQueue({
-    limit: config.mcp.maxConcurrentCalls,
-    // A separate snapshot from the host plugin's queue: two processes must not
-    // overwrite each other's job registry.
-    persistPath: process.env.AUDIO_TOOLKIT_JOBS || join(STATE_DIR, 'jobs.mcp.json'),
-    execute: (kind, params, jobConfig, signal) => {
-      const tool = findTool(kind === 'tts' ? 'tts_speak' : 'asr_transcribe')
-      if (!tool) throw new Error(`未知任务类型：${kind}`)
-      return tool.handler(params, jobConfig, { signal, version: TOOLKIT_VERSION, configSource: 'job', jobs: jobQueue })
-    },
-  })
+  try {
+    jobQueue = new JobQueue({
+      limit: config.mcp.maxConcurrentCalls,
+      // A separate snapshot from the host plugin's queue: two processes must not
+      // overwrite each other's job registry.
+      persistPath: process.env.AUDIO_TOOLKIT_JOBS || join(STATE_DIR, 'jobs.mcp.json'),
+      execute: (kind, params, jobConfig, signal) => {
+        const tool = findTool(kind === 'tts' ? 'tts_speak' : 'asr_transcribe')
+        if (!tool) throw new Error(`未知任务类型：${kind}`)
+        return tool.handler(params, jobConfig, { signal, version: TOOLKIT_VERSION, configSource: 'job', jobs: jobQueue })
+      },
+    })
+  } catch (error) {
+    // The synchronous tools do not need a queue; keep the JSON-RPC surface alive
+    // instead of exiting before `initialize`.
+    jobQueue = undefined
+    log(`任务队列不可用（异步任务将报错）：${error instanceof Error ? error.message : String(error)}`)
+  }
 
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
 
@@ -250,8 +314,14 @@ function start() {
     }
     // Dispatch independently: JSON-RPC correlates responses by id, and the
     // per-call queue above is what actually bounds concurrency.
-    dispatch(message).catch((error) => {
-      log(`dispatch error: ${error instanceof Error ? error.stack : String(error)}`)
+    dispatch(message).catch(async (error) => {
+      log(`dispatch error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
+      // A JSON-RPC request must never be dropped silently: the client would wait
+      // for a response until its own timeout, which is the "MCP 假死" symptom.
+      const id = message && typeof message === 'object' ? message.id : undefined
+      if (id !== undefined && id !== null) {
+        await sendError(id, -32603, `内部错误：${error instanceof Error ? error.message : String(error)}`).catch(() => {})
+      }
     })
   })
 

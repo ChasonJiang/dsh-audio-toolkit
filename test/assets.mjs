@@ -20,14 +20,16 @@ import {
   defaultBackend,
   ensureAssets,
   ffmpegSourceUrl,
+  hostPlatform,
   installFfmpeg,
   missingAssets,
   modelBases,
   pickCudartAsset,
   pickReleaseAsset,
+  provisionAssets,
   releasePlatform,
 } from '../mcp/assets.mjs'
-import { resolveConfig, SERVER_BINARY } from '../src/config.js'
+import { ffmpegFallbackPath, resolveConfig, SERVER_BINARY } from '../src/config.js'
 import { extractTarGz, readTarEntries } from '../mcp/tar.mjs'
 import { extractZip, readZipEntries } from '../mcp/zip.mjs'
 
@@ -79,13 +81,13 @@ function makeZip(files) {
 }
 
 /** Minimal ustar writer for tar.gz fixtures. */
-function makeTar(files) {
+function makeTar(files, mode = '0000644\0') {
   const blocks = []
   for (const [name, content] of Object.entries(files)) {
     const data = Buffer.from(content)
     const header = Buffer.alloc(512)
     header.write(name, 0, 100, 'utf8')
-    header.write('0000644\0', 100)
+    header.write(mode, 100)
     header.write('0000000\0', 108)
     header.write('0000000\0', 116)
     header.write(`${data.length.toString(8).padStart(11, '0')}\0`, 124)
@@ -147,8 +149,10 @@ const release = {
 }
 
 function startServer() {
+  const requests = []
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1')
+    requests.push(url.pathname)
     const send = (body, headers = {}) => {
       res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': body.length, ...headers })
       res.end(body)
@@ -185,7 +189,12 @@ function startServer() {
     res.writeHead(404)
     res.end()
   })
-  return new Promise((resolvePromise) => server.listen(0, '127.0.0.1', () => resolvePromise(server)))
+  return new Promise((resolvePromise) =>
+    server.listen(0, '127.0.0.1', () => {
+      server.requests = requests
+      resolvePromise(server)
+    }),
+  )
 }
 
 function freshConfig(assetsDir, overrides = {}) {
@@ -206,6 +215,34 @@ async function main() {
   check('unknown backend has no build', pick('windows', 'metal') === undefined)
   check('auto backend follows the platform', pick('darwin', 'auto', 'arm64') === 'audio-v0.9.4-bin-macos-arm64-metal.tar.gz', pick('darwin', 'auto', 'arm64'))
   check('availableTargets lists the shipped combinations', availableTargets(release.assets).length >= 6, availableTargets(release.assets).join(' '))
+  check(
+    'platform tokens normalize in both directions',
+    releasePlatform('darwin') === 'macos' &&
+      releasePlatform('macos') === 'macos' &&
+      releasePlatform('linux') === 'ubuntu' &&
+      releasePlatform('ubuntu') === 'ubuntu' &&
+      releasePlatform('win32') === 'windows' &&
+      hostPlatform('macos') === 'darwin' &&
+      hostPlatform('ubuntu') === 'linux' &&
+      hostPlatform('windows') === 'win32',
+    `${releasePlatform('darwin')}/${hostPlatform('macos')}`,
+  )
+  check(
+    'backend defaults accept release and host tokens',
+    defaultBackend('macos') === 'metal' &&
+      defaultBackend('darwin') === 'metal' &&
+      defaultBackend('windows') === 'cuda' &&
+      defaultBackend('ubuntu') === 'cpu',
+  )
+  check(
+    'ffmpeg URL follows normalized platform tokens',
+    ffmpegSourceUrl('macos', 'arm64').includes('arm') &&
+      ffmpegSourceUrl('macos', 'x64').includes('intel') &&
+      ffmpegSourceUrl('darwin', 'arm64').includes('arm') &&
+      ffmpegSourceUrl('ubuntu') === '' &&
+      ffmpegSourceUrl('windows').includes('gyan'),
+    `${ffmpegSourceUrl('macos', 'arm64')} / ${ffmpegSourceUrl('ubuntu')}`,
+  )
   check(
     'cudart follows the chosen runtime',
     pickCudartAsset(release.assets, 'audio-v0.9.4-bin-windows-x64-cuda13.3.zip')?.name === 'audio-v0.9.4-cudart-windows-x64-cuda13.3.zip',
@@ -233,6 +270,18 @@ async function main() {
       extractTarGz(linuxRuntimeTar, only, { filter: (name) => name.endsWith('.json') })
       return existsSync(join(only, 'model_specs', 'index_tts2.json')) && !existsSync(join(only, 'audiocpp_server'))
     })(),
+  )
+  check(
+    'tar: preserves the executable bit on POSIX',
+    (() => {
+      const modeDir = join(SCRATCH, 'tar-mode')
+      extractTarGz(makeTarGz({ 'bin/audiocpp_server': 'stub' }, '0000755\0'), modeDir)
+      // The archive has one common top-level directory, so it is stripped.
+      const target = join(modeDir, 'audiocpp_server')
+      if (!existsSync(target)) return false
+      return process.platform === 'win32' || (statSync(target).mode & 0o111) !== 0
+    })(),
+    process.platform,
   )
 
   // 3. end-to-end provisioning for the host platform
@@ -263,6 +312,13 @@ async function main() {
     })
     check('provisioning reports success', first.ok === true && first.provisioned === true, `${first.root}`)
     check(`engine binary installed (${host})`, existsSync(join(assetsDir, 'bin', 'audio.cpp', SERVER_BINARY)))
+    if (process.platform !== 'win32') {
+      check(
+        'installed POSIX server is executable',
+        (statSync(join(assetsDir, 'bin', 'audio.cpp', SERVER_BINARY)).mode & 0o111) !== 0,
+        (statSync(join(assetsDir, 'bin', 'audio.cpp', SERVER_BINARY)).mode & 0o777).toString(8),
+      )
+    }
     check('release model specs installed', existsSync(join(assetsDir, 'bin', 'audio.cpp', 'model_specs', 'index_tts2.json')))
     check(
       'all three models installed',
@@ -327,8 +383,52 @@ async function main() {
     const second = await ensureAssets(freshConfig(assetsDir), { platform: process.platform, backend, inProcess: true })
     check('second call is a no-op', second.provisioned === false)
 
-    // ffmpeg is required: a failed download must fail the install with a reason.
+    // The panel's install checkboxes: a models-only install must not fetch the
+    // release API, and a release-only install must not touch the model files.
     {
+      const ffmpegStub = join(SCRATCH, 'ffmpeg-present')
+      writeFileSync(ffmpegStub, 'stub')
+      const modelsOnly = join(SCRATCH, 'parts-models')
+      server.requests.length = 0
+      await provisionAssets(resolveConfig({ assetsDir: modelsOnly, ffmpegPath: ffmpegStub }), {
+        apiUrl: `${base}/api/release`,
+        modelBases: [base],
+        release: false,
+        models: true,
+      })
+      check(
+        'install parts: models-only skips the release API',
+        !server.requests.includes('/api/release') &&
+          existsSync(join(modelsOnly, 'bin', 'models', 'PulseVAD-GGUF', 'pulsevad-2.1k-f32.gguf')),
+        server.requests.join(' '),
+      )
+
+      const releaseOnly = join(SCRATCH, 'parts-release')
+      server.requests.length = 0
+      await provisionAssets(resolveConfig({ assetsDir: releaseOnly, ffmpegPath: ffmpegStub }), {
+        apiUrl: `${base}/api/release`,
+        modelBases: [base],
+        release: true,
+        models: false,
+        platform: process.platform,
+        backend,
+      })
+      check(
+        'install parts: release-only skips model downloads',
+        server.requests.includes('/api/release') &&
+          !server.requests.some((path) => path.includes('/resolve/main/')) &&
+          !existsSync(join(releaseOnly, 'bin', 'models')),
+        server.requests.join(' '),
+      )
+    }
+
+    // ffmpeg is required: a failed download must fail the install with a reason.
+    // Clearing PATH hides a normal install, but `ffmpegFallbackPath()` probes
+    // /usr/bin and Homebrew directly; if that finds one (common on macOS CI) the
+    // install legitimately succeeds, so skip instead of asserting a failure.
+    if (ffmpegFallbackPath()) {
+      console.log('SKIP  failed ffmpeg download (a system ffmpeg is in a well-known prefix)')
+    } else {
       const saved = { PATH: process.env.PATH, Path: process.env.Path }
       process.env.PATH = ''
       process.env.Path = ''

@@ -37,6 +37,23 @@ async function main() {
     const body = await status.json()
     check('status responds', status.status === 200 && body.ready === false, `${body.missing?.length} missing`)
     check('status reports the asset root', typeof body.root === 'string' && body.root.length > 0, body.root)
+    check(
+      'status reports the effective backend and install support',
+      typeof body.backend === 'string' &&
+        body.backends?.includes(body.backend) &&
+        body.install_supported === ['win32', 'linux', 'darwin'].includes(process.platform),
+      `${body.backend} / ${body.backends?.join(',')} / ${body.install_supported}`,
+    )
+
+    // The install card's checkboxes are meaningful: an empty selection is a
+    // validation error, not a silent no-op (or a full 6 GB download).
+    const emptyInstall = await fetch(`${base}/install`, {
+      method: 'POST',
+      headers: { origin: 'dsh-app://app', 'content-type': 'application/json' },
+      body: JSON.stringify({ release: false, models: false }),
+    })
+    const emptyPayload = await emptyInstall.json()
+    check('an empty install selection is rejected', emptyInstall.status === 400 && String(emptyPayload.error).includes('至少'), emptyPayload.error)
 
     const options = await fetch(`${base}/install`, { method: 'OPTIONS', headers: { origin: 'dsh-app://app' } })
     check(

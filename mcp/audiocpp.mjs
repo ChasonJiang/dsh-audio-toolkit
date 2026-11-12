@@ -8,6 +8,7 @@
 
 import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
+import { delimiter } from 'node:path'
 import { isFile } from '../src/config.js'
 
 /** Error carrying the CLI context needed for a useful tool message. */
@@ -43,8 +44,9 @@ export function runCli({ cliPath, cwd, args, timeoutMs, scratchDir, label = 'aud
   return new Promise((resolvePromise, rejectPromise) => {
     const startedAt = Date.now()
     const env = { ...process.env }
-    env.PATH = `${cwd};${env.PATH ?? ''}`
-    env.Path = `${cwd};${env.Path ?? ''}`
+    // POSIX uses `:`, Windows uses `;` (and `Path` is the same variable there).
+    env.PATH = [cwd, env.PATH].filter(Boolean).join(delimiter)
+    if (process.platform === 'win32') env.Path = env.PATH
     if (scratchDir) {
       try {
         mkdirSync(scratchDir, { recursive: true })

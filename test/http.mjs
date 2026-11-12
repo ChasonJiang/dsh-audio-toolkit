@@ -23,6 +23,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { transcribeAudio } from '../mcp/engine.mjs'
+import { httpGetJson } from '../src/engine.js'
 import { SlotQueue } from '../mcp/slots.mjs'
 import { asrTranscribe } from '../mcp/tools.mjs'
 import { REPO_ROOT, isFile, resolveConfig } from '../src/config.js'
@@ -284,8 +285,123 @@ async function cancellationCheck(ttsPort) {
   return 'ran'
 }
 
+/**
+ * Protocol-level smoke test that needs no assets: every request must receive a
+ * response. A request that dispatch silently dropped used to leave the client
+ * waiting until its own timeout (the reported "MCP 假死").
+ */
+async function protocolCheck() {
+  const statePath = join(SCRATCH, 'protocol-config.json')
+  writeFileSync(
+    statePath,
+    JSON.stringify({ config: { enginePort: 65529, toolCallTimeoutMs: 5_000, outputFolder: 'http-test-out' } }),
+  )
+  let child
+  try {
+    child = spawn(process.execPath, [SERVER], {
+      cwd: REPO_ROOT,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, AUDIO_TOOLKIT_CONFIG: statePath, AUDIO_TOOLKIT_JOBS: join(SCRATCH, 'jobs-protocol.json') },
+      windowsHide: true,
+    })
+  } catch (error) {
+    console.log(`SKIP  protocol smoke (cannot spawn the MCP server here: ${error?.code || error.message})`)
+    return 'skipped'
+  }
+  const client = new Client(child)
+  try {
+    const init = await client.request('initialize', {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'protocol-test', version: '0.0.0' },
+    })
+    check('protocol: initialize answers', init?.serverInfo?.name === 'audio', init?.protocolVersion)
+    client.notify('notifications/initialized')
+    const list = await client.request('tools/list')
+    check('protocol: tools/list answers', list?.tools?.length === 7, `${list?.tools?.length} tools`)
+
+    const unknown = await client.request('tools/call', { name: 'does_not_exist', arguments: {} })
+    check(
+      'protocol: an unknown tool is an error result, not a dropped request',
+      unknown?.isError === true && String(unknown?.content?.[0]?.text ?? '').includes('未知工具'),
+    )
+
+    let methodError
+    try {
+      await client.request('no/such/method', {})
+    } catch (error) {
+      methodError = error.message
+    }
+    check('protocol: an unknown method answers with a JSON-RPC error', String(methodError).includes('-32601'), methodError)
+  } finally {
+    try {
+      child.kill()
+    } catch {
+      /* already gone */
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 200))
+  }
+  return 'ran'
+}
+
 async function main() {
-  // 1. the deadline covers the response body
+  // 0. engine lifecycle health checks must always settle
+  {
+    const healthy = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end('{"status":"ok"}')
+    })
+    await new Promise((resolvePromise) => healthy.listen(0, '127.0.0.1', resolvePromise))
+    const value = await httpGetJson(`http://127.0.0.1:${healthy.address().port}/health`, 1_000)
+    healthy.close()
+    check('health check: a normal response is parsed', value?.status === 'ok', JSON.stringify(value))
+  }
+  {
+    const partial = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.write('{"status":')
+      // Close the socket mid-body: `end` never fires, so only an
+      // error/aborted/close handler can settle the promise.
+      setTimeout(() => res.destroy(), 20)
+    })
+    await new Promise((resolvePromise) => partial.listen(0, '127.0.0.1', resolvePromise))
+    const started = Date.now()
+    const value = await httpGetJson(`http://127.0.0.1:${partial.address().port}/health`, 800)
+    const elapsed = Date.now() - started
+    partial.close()
+    check('health check: an incomplete response settles', value === undefined && elapsed < 2_000, `${elapsed}ms`)
+  }
+  {
+    const sockets = new Set()
+    const trickle = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      const timer = setInterval(() => {
+        try {
+          res.write(' ')
+        } catch {
+          clearInterval(timer)
+        }
+      }, 50)
+      res.on('close', () => clearInterval(timer))
+    })
+    trickle.on('connection', (socket) => {
+      sockets.add(socket)
+      socket.on('close', () => sockets.delete(socket))
+    })
+    await new Promise((resolvePromise) => trickle.listen(0, '127.0.0.1', resolvePromise))
+    const started = Date.now()
+    // The socket is never idle, so only the overall deadline can end this.
+    const value = await httpGetJson(`http://127.0.0.1:${trickle.address().port}/health`, 300)
+    const elapsed = Date.now() - started
+    for (const socket of sockets) socket.destroy()
+    trickle.close()
+    check('health check: the overall deadline beats a slow drip', value === undefined && elapsed < 1_500, `${elapsed}ms`)
+  }
+
+  // 1. the MCP surface always answers (spawn may be blocked in a sandbox)
+  await protocolCheck()
+
+  // 2. the deadline covers the response body
   const stalling = await stallingEngine()
   try {
     const started = Date.now()

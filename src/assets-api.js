@@ -14,7 +14,7 @@ import { createServer } from 'node:http'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { assetsReady, cancelInstall, deleteAssets, installSnapshot, missingAssets, startInstall } from '../mcp/assets.mjs'
+import { cancelInstall, deleteAssets, installSnapshot, missingAssets, startInstall } from '../mcp/assets.mjs'
 import { engineHealth } from '../mcp/engine.mjs'
 import { TOOLKIT_VERSION } from './config.js'
 
@@ -113,6 +113,13 @@ export function createAssetsApi({ getConfig, onBeforeDelete, onEngineStart, onEn
           ready: missing.length === 0,
           missing,
           auto_download: config.assets.autoDownload,
+          // The panel needs the *effective* backend (a stale `cuda` on macOS is
+          // already normalized to `metal`) and whether installs are supported.
+          backend: config.audioCpp.backend,
+          backend_requested: config.audioCpp.backendRequested,
+          backend_fallback: config.audioCpp.backendFallback,
+          backends: config.audioCpp.backendSupported,
+          install_supported: ['win32', 'linux', 'darwin'].includes(process.platform),
           engine: { enabled: config.engine.enabled, running: Boolean(health) },
           proxy: config.assets.proxy || '',
           sizes: {
@@ -168,11 +175,22 @@ export function createAssetsApi({ getConfig, onBeforeDelete, onEngineStart, onEn
           send(400, { error: 'invalid json' })
           return
         }
+        // The card's "install contents" checkboxes were previously ignored, so
+        // unchecking models still downloaded 5 GB. Honour them and reject an
+        // empty selection instead of doing nothing silently.
+        const wantsRelease = options.release === undefined ? true : options.release !== false
+        const wantsModels = options.models === undefined ? true : options.models !== false
+        if (!wantsRelease && !wantsModels) {
+          send(400, { error: '至少选择 audio.cpp 运行时或 GGUF 模型之一' })
+          return
+        }
         const config = getConfig()
         const result = startInstall(config, {
           proxy: typeof options.proxy === 'string' ? options.proxy : undefined,
           platform: typeof options.platform === 'string' && options.platform ? options.platform : undefined,
           backend: typeof options.backend === 'string' && options.backend ? options.backend : undefined,
+          release: wantsRelease,
+          models: wantsModels,
           log: (line) => log(line),
         })
         if (result.started) log('[assets] 面板请求安装运行时依赖')

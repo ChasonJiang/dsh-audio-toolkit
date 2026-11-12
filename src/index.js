@@ -9,19 +9,20 @@
  *  3. self-check the install and publish the resolved config to
  *     `state/config.json` for the MCP server.
  *
- * The TTS/ASR tools are mounted by the sibling `@deepseek-ai/dsh-mcp-client` row
- * declared in `cordis.patch.yml`; the browser half (`src/client.js`) renders the
- * panel page.
+ * The TTS/ASR tools are registered on the host `tools` service (see
+ * `src/host-tools.js`); the browser half (`src/client.js`) renders the panel page.
  */
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
+  ALL_BACKENDS,
   DEFAULT_CONFIG,
   STATE_CONFIG_PATH,
   STATE_DIR,
   TOOLKIT_VERSION,
+  platformBackendDefault,
   readValue,
   resolveConfig,
   summarize,
@@ -196,9 +197,12 @@ function buildConfig() {
       )
       .volatile(),
     modelsDir: Schema.string().default('').description('模型根目录。留空 = <assetsDir>/bin/models。').volatile(),
-    backend: Schema.union(['cuda', 'cpu', 'vulkan'])
-      .default('cuda')
-      .description('推理后端：cuda / cpu / vulkan（改后引擎自动重启）。')
+    backend: Schema.union(ALL_BACKENDS)
+      .default(platformBackendDefault())
+      .description(
+        '推理后端：Windows 用 cuda / cpu / vulkan，macOS 用 metal / cpu，Linux 用 cuda / cpu / vulkan / rocm。' +
+          '与当前平台不匹配的旧值会自动回退（改后引擎自动重启）。',
+      )
       .volatile(),
     device: Schema.natural().default(0).description('后端设备序号。').volatile(),
     threads: Schema.natural().default(0).description('CPU 线程数，0 = 自动。').volatile(),
@@ -396,6 +400,12 @@ export function apply(ctx, config) {
   try {
     const resolved = publish(config)
     hostLog(`[dsh-audio-toolkit] v${PLUGIN_VERSION} 配置：${summarize(resolved)}`)
+    if (resolved.audioCpp.backendFallback) {
+      hostLogWarn(
+        `[dsh-audio-toolkit] backend=${resolved.audioCpp.backendRequested} 在当前平台（${process.platform}）不可用，` +
+          `已自动回退到 ${resolved.audioCpp.backend}；请在面板里重新选择后端并保存。`,
+      )
+    }
 
     const log = hostLog
     // The manager is constructed once, so it reads the config through a factory:
@@ -409,7 +419,9 @@ export function apply(ctx, config) {
       getConfig: engineConfig,
       // Windows keeps DLLs locked while the engine runs; stop it before deleting.
       onBeforeDelete: () => engine.stop(),
-      onEngineStart: () => engine.start(),
+      // The panel button is an explicit start command: it saves engineEnabled
+      // first, but the two calls race, so do not let a stale flag veto the start.
+      onEngineStart: () => engine.start({ force: true }),
       onEngineStop: () => engine.stop(),
       log,
     })
@@ -486,8 +498,10 @@ export function apply(ctx, config) {
     if (bootStart) {
       // Do not block plugin activation: the server is lazy, and tool calls that
       // arrive early retry briefly before reporting "not started".
+      // `autoStart` outranks a stale `engineEnabled: false` from the previous
+      // session's Stop button; the force flag is what makes that promise true.
       engine
-        .start()
+        .start({ force: !activated && resolved.engine.autoStart })
         .then((result) => {
           if (result.error) {
             hostLogWarn(`[dsh-audio-toolkit] 引擎未能启动：${result.error}`)
@@ -511,7 +525,7 @@ export function apply(ctx, config) {
     }
 
     activated = true
-  let previousRaw = snapshotRaw(config)
+    let previousRaw = snapshotRaw(config)
     let previousResolved = resolved
 
     // A volatile panel edit does not remount the plugin: react to it here.
@@ -524,6 +538,13 @@ export function apply(ctx, config) {
           const restartNeeded = engineSettingsChanged(previousRaw, nextRaw)
           previousRaw = nextRaw
           previousResolved = next
+          // Keep an already-running job queue in sync with the new limit; it is
+          // otherwise only refreshed on the next submit_tasks call.
+          try {
+            jobs?.setLimit?.(next.mcp.maxConcurrentCalls)
+          } catch {
+            /* queue may already be disposed */
+          }
 
           if (enabledChanged) {
             if (next.engine.enabled) {

@@ -28,7 +28,8 @@
         enginePort: 8788
 
         # —— audio.cpp 运行时 ——
-        backend: cuda
+        # backend 不写死：默认按平台选择（Windows→cuda、macOS→metal、Linux→cpu）。
+        # 写死 cuda 会让 macOS 上的引擎启动失败；面板保存后会在配置里生成该项。
         device: 0
         threads: 0
 

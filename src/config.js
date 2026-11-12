@@ -35,12 +35,58 @@ export const ASSET_ROOT = PACKAGE_ROOT
 /** Back-compat alias: tests and scripts call the asset root `REPO_ROOT`. */
 export const REPO_ROOT = ASSET_ROOT
 
-/** audio.cpp executable names on this platform (udiocpp_server.exe on Windows). */
+/** audio.cpp executable names on this platform (audiocpp_server.exe on Windows). */
 export const SERVER_BINARY = process.platform === 'win32' ? 'audiocpp_server.exe' : 'audiocpp_server'
 export const CLI_BINARY = process.platform === 'win32' ? 'audiocpp_cli.exe' : 'audiocpp_cli'
 
 /** ffmpeg executable name used when a directory is configured instead of a file. */
 export const FFMPEG_BINARY = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+
+/**
+ * Inference backends each host platform can actually run.
+ *
+ * `metal` is the only GPU backend on macOS (there is no CUDA/Vulkan build), and
+ * `rocm` only exists on Linux. Keeping the list here lets the panel, the config
+ * normalizer and the asset installer agree on what is selectable.
+ */
+export const BACKENDS_BY_PLATFORM = {
+  win32: ['cuda', 'cpu', 'vulkan'],
+  linux: ['cuda', 'cpu', 'vulkan', 'rocm'],
+  darwin: ['metal', 'cpu'],
+}
+
+/** Every backend the audio.cpp release ships anywhere. */
+export const ALL_BACKENDS = ['cuda', 'cpu', 'vulkan', 'rocm', 'metal']
+
+/** Backend used when the user never chose one: CUDA on Windows, Metal on macOS, CPU elsewhere. */
+export function platformBackendDefault(platform = process.platform) {
+  if (platform === 'darwin') return 'metal'
+  if (platform === 'win32') return 'cuda'
+  return 'cpu'
+}
+
+/** Backends that make sense on one host platform. */
+export function supportedBackends(platform = process.platform) {
+  return BACKENDS_BY_PLATFORM[platform] ?? ['cpu']
+}
+
+/**
+ * Normalize a configured backend for the host platform.
+ *
+ * A profile copied from another machine can still say `cuda` on macOS. Rather
+ * than failing the engine start with an opaque error, fall back to the platform
+ * default and report that the original choice was unsupported.
+ * @param {unknown} value
+ * @param {string} [platform]
+ * @returns {{backend: string, requested: string, fallback: boolean}}
+ */
+export function normalizeBackend(value, platform = process.platform) {
+  const requested = str(value, '').toLowerCase()
+  const allowed = supportedBackends(platform)
+  if (!requested) return { backend: platformBackendDefault(platform), requested: '', fallback: false }
+  if (allowed.includes(requested)) return { backend: requested, requested, fallback: false }
+  return { backend: platformBackendDefault(platform), requested, fallback: true }
+}
 
 /**
  * Toolkit version, read from package.json so it is declared exactly once.
@@ -137,7 +183,8 @@ export const DEFAULT_CONFIG = {
   cliPath: '',
   ffmpegPath: '',
   modelsDir: '',
-  backend: 'cuda',
+  // Resolved per platform by resolveConfig; this keeps the schema default sane too.
+  backend: platformBackendDefault(),
   device: 0,
   threads: 0,
   extraArgs: '',
@@ -349,12 +396,14 @@ export function sanitizeFolderName(value) {
  * Merge a raw (possibly partial, possibly volatile-ref) flat config over the
  * defaults and normalize every field.
  * @param {Record<string, any>} raw
- * @param {{baseDir?: string}} [options] session working directory the output
- *   folder is resolved against (host tools pass the live session directory)
+ * @param {{baseDir?: string, platform?: string}} [options] session working
+ *   directory the output folder is resolved against (host tools pass the live
+ *   session directory); `platform` overrides the host platform for tests
  */
 export function resolveConfig(raw = {}, options = {}) {
   const get = (key) => (raw && typeof raw === 'object' ? raw[key] : undefined)
   const baseDir = resolvePath(options.baseDir || '') || process.cwd()
+  const platform = options.platform ?? process.platform
 
   // Assets: every path field defaults to "auto". An explicit binDir/modelsDir
   // wins; otherwise both follow the discovered asset root.
@@ -382,6 +431,9 @@ export function resolveConfig(raw = {}, options = {}) {
     /[^A-Za-z0-9_-]/g,
     '',
   )
+  // A config written on another machine (or the old `backend: cuda` default) must
+  // not make a macOS engine fail with "no CUDA device".
+  const backend = normalizeBackend(get('backend'), platform)
 
   return {
     serverName,
@@ -419,7 +471,10 @@ export function resolveConfig(raw = {}, options = {}) {
       cliPath: resolvePath(str(get('cliPath'), '')) || join(binDir, CLI_BINARY),
       ffmpegPath,
       modelsDir,
-      backend: str(get('backend'), DEFAULT_CONFIG.backend) || 'cuda',
+      backend: backend.backend,
+      backendRequested: backend.requested,
+      backendFallback: backend.fallback,
+      backendSupported: supportedBackends(platform),
       device: int(get('device'), 0),
       threads: int(get('threads'), 0),
       extraArgs: splitTokens(get('extraArgs')),
@@ -619,9 +674,12 @@ export function inspectInstall(config) {
 
 /** One-line summary used by logs. */
 export function summarize(config) {
+  const backend = config.audioCpp.backendFallback
+    ? `${config.audioCpp.backend} (configured ${config.audioCpp.backendRequested} is unsupported here)`
+    : config.audioCpp.backend
   return [
     `bin=${config.audioCpp.binDir}`,
-    `backend=${config.audioCpp.backend}:${config.audioCpp.device}`,
+    `backend=${backend}:${config.audioCpp.device}`,
     `engine=${config.engine.url} (${config.engine.enabled ? 'enabled' : 'disabled'})`,
     `tts=${config.tts.family}`,
     `asr=${config.asr.family}`,

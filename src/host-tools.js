@@ -44,6 +44,79 @@ const ENGINE_TOOLS = new Set(['tts_speak', 'asr_transcribe'])
 /** Output schema shared by every tool: each returns a JSON object. */
 const OUTPUT_SCHEMA = { type: 'object' }
 
+/** Extra time the watchdog allows on top of the engine request deadline. */
+const WATCHDOG_GRACE_MS = 15_000
+
+/**
+ * Run one tool handler under a deadline.
+ *
+ * The engine client already applies `toolCallTimeoutMs` to every HTTP request,
+ * but a handler can still hang outside it (waiting for a slot, a native helper
+ * that ignores its abort signal, or a future code path). DSH's tool call would
+ * then wait for the definition's 15-minute timeout, which looks exactly like a
+ * dead agent. This aborts at the configured deadline + grace and turns the
+ * resulting cancellation into a readable tool error.
+ *
+ * @param {(signal: AbortSignal) => Promise<any>} run
+ * @param {number} timeoutMs engine-request deadline from the panel config
+ * @param {AbortSignal} [outer] DSH's cancellation signal
+ */
+function runWithDeadline(run, timeoutMs, outer) {
+  const controller = new AbortController()
+  const abort = (reason) => {
+    if (!controller.signal.aborted) controller.abort(reason)
+  }
+  const deadline = Math.max(1, Number(timeoutMs) || 1) + WATCHDOG_GRACE_MS
+  let timedOut = false
+  let rejectDeadline
+  // Racing the handler (rather than only aborting it) is what guarantees a
+  // response: a control tool that never settles cannot hold the agent forever.
+  const deadlineHit = new Promise((_resolve, reject) => {
+    rejectDeadline = reject
+  })
+  const timer = setTimeout(() => {
+    timedOut = true
+    const error = new Error(
+      `工具调用超过 ${Math.round(deadline / 1000)}s 仍未返回（可能引擎未启动、模型仍在加载或请求排队过久）。` +
+        '请查看 state/host.log 与 state/engine.log；确认引擎已启动后可重试。',
+    )
+    abort(error)
+    rejectDeadline(error)
+  }, deadline)
+  timer.unref?.()
+
+  let onOuterAbort
+  if (outer) {
+    const outerReason = () => (outer.reason instanceof Error ? outer.reason : new Error('调用已取消'))
+    if (outer.aborted) {
+      abort(outerReason())
+      rejectDeadline(outerReason())
+    } else {
+      onOuterAbort = () => {
+        abort(outerReason())
+        rejectDeadline(outerReason())
+      }
+      outer.addEventListener('abort', onOuterAbort, { once: true })
+    }
+  }
+
+  // `run` may be synchronous (a control tool or a test stub); normalize first.
+  const body = Promise.resolve().then(() => run(controller.signal))
+  return Promise.race([body, deadlineHit])
+    .catch((error) => {
+      // SlotQueue reports aborts as `AbortError`, which a tool runtime may treat
+      // as a silent cancellation. Our own deadline has to stay a visible error.
+      if (timedOut && error?.name === 'AbortError') {
+        throw new Error(error instanceof Error ? error.message : String(error))
+      }
+      throw error
+    })
+    .finally(() => {
+      clearTimeout(timer)
+      if (outer && onOuterAbort) outer.removeEventListener('abort', onOuterAbort)
+    })
+}
+
 /** Render a tool result as one pretty JSON text block. */
 function renderJson(_args, value) {
   return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
@@ -86,16 +159,21 @@ export function buildToolDefinitions(getConfig, { jobs } = {}) {
       timeoutMs: 900_000,
       async execute(args, exec) {
         const config = getConfig(exec)
-        const call = () =>
+        const call = (signal) =>
           tool.handler(args ?? {}, config, {
-            signal: exec?.signal,
+            signal,
             version: TOOLKIT_VERSION,
             configSource: 'plugin state',
             jobs,
           })
-        const value = ENGINE_TOOLS.has(tool.name)
-          ? await slots.run(config.mcp.maxConcurrentCalls, call, exec?.signal)
-          : await call()
+        const value = await runWithDeadline(
+          (signal) =>
+            ENGINE_TOOLS.has(tool.name)
+              ? slots.run(config.mcp.maxConcurrentCalls, () => call(signal), signal)
+              : call(signal),
+          config.mcp.toolCallTimeoutMs,
+          exec?.signal,
+        )
         return toLosslessJson(value)
       },
     }
@@ -110,12 +188,30 @@ export function buildToolDefinitions(getConfig, { jobs } = {}) {
  * @returns {string[]} registered tool names
  */
 export function registerHostTools(ctx, getConfig, options = {}) {
-  if (!ctx?.tools?.register) {
+  // `ctx.tools` is guarded by Cordis' inject check. The plugin declares
+  // `inject: ['tools']`, but a loader/build that drops named exports (observed
+  // with some third-party bundle paths) leaves the getter throwing even though
+  // the service exists. `ctx.get()` is the inject-free read and keeps the tools
+  // registerable in that case.
+  let tools
+  try {
+    tools = ctx?.tools
+  } catch {
+    tools = undefined
+  }
+  if (!tools?.register && typeof ctx?.get === 'function') {
+    try {
+      tools = ctx.get('tools')
+    } catch {
+      tools = undefined
+    }
+  }
+  if (!tools?.register) {
     throw new Error('ctx.tools 不可用：无法注册 audio_toolkit_* 工具')
   }
   const registered = []
   for (const definition of buildToolDefinitions(getConfig, options)) {
-    ctx.tools.register(definition)
+    tools.register(definition)
     registered.push(definition.name)
   }
   return registered

@@ -256,6 +256,117 @@ async function main() {
     labels.filter((l) => l.startsWith('t:assets')).join(', '),
   )
 
+  // macOS: the backend control must offer Metal (not CUDA) and the automatic
+  // installer must be usable. Both were broken by a hard-coded Windows/CUDA map.
+  {
+    const macAssets = {
+      ...assetsView,
+      status: {
+        ...assetsView.status,
+        ready: false,
+        platform: 'darwin',
+        arch: 'arm64',
+        backend: 'metal',
+        backends: ['metal', 'cpu'],
+        missing: ['audio.cpp 运行时'],
+        sizes: { release: 0, models: 0 },
+      },
+      options: { release: true, models: true },
+    }
+    const macTree = component({
+      view: 'page',
+      t,
+      useAudioToolkitCard: (selector) =>
+        selector({ ...projection, setupChoice: { text: 'auto', overridden: false, invalid: false } }),
+      useAudioToolkitAssets: (selector) => selector(macAssets),
+      save: () => {},
+      discard: () => {},
+      edit: () => {},
+    })
+    const macButtons = []
+    walkTree(macTree, (node) => {
+      if (node.type === 'Button') macButtons.push(node)
+    })
+    const installButton = macButtons.find((node) => String(node.props.children) === 't:assetsInstallAll')
+    check(
+      'macOS automatic install button is enabled',
+      installButton !== undefined && installButton.props.disabled === false,
+      JSON.stringify(installButton?.props.disabled),
+    )
+  }
+
+  // The normal form on macOS must only offer Metal/CPU.
+  {
+    const macForm = component({
+      view: 'page',
+      t,
+      useAudioToolkitCard: (selector) => selector(projection),
+      useAudioToolkitAssets: (selector) =>
+        selector({
+          ...assetsView,
+          status: {
+            ...assetsView.status,
+            ready: true,
+            platform: 'darwin',
+            backend: 'metal',
+            backends: ['metal', 'cpu'],
+          },
+        }),
+      save: () => {},
+      discard: () => {},
+      edit: () => {},
+    })
+    const macSegments = []
+    walkTree(macForm, (node) => {
+      if (node.type === 'SegmentedControl') macSegments.push(node)
+    })
+    const backendControl = macSegments.find((node) => node.props.id === 'audio-toolkit-backend')
+    check(
+      'macOS backend control offers metal, not cuda',
+      backendControl?.props.options.map((option) => option.value).join(',') === 'metal,cpu' &&
+        backendControl.props.value === 'metal',
+      backendControl?.props.options.map((option) => option.value).join(','),
+    )
+  }
+
+  // A profile copied from Windows still says `backend: cuda`; the panel shows the
+  // effective Metal backend and explains the fallback instead of silently lying.
+  {
+    const macReady = component({
+      view: 'page',
+      t,
+      useAudioToolkitCard: (selector) =>
+        selector({ ...projection, backend: { text: 'cuda', overridden: true, invalid: false } }),
+      useAudioToolkitAssets: (selector) =>
+        selector({
+          ...assetsView,
+          status: {
+            ...assetsView.status,
+            ready: true,
+            platform: 'darwin',
+            backend: 'metal',
+            backends: ['metal', 'cpu'],
+          },
+        }),
+      save: () => {},
+      discard: () => {},
+      edit: () => {},
+    })
+    const macSegments = []
+    walkTree(macReady, (node) => {
+      if (node.type === 'SegmentedControl') macSegments.push(node)
+    })
+    const backendControl = macSegments.find((node) => node.props.id === 'audio-toolkit-backend')
+    check(
+      'a stale cuda backend shows the macOS fallback',
+      backendControl?.props.value === 'metal' &&
+        collectAnyText(macReady).some((label) => label.includes('t:backendUnsupported') && label.includes('metal')),
+      `${macSegments.map((node) => `${node.props.id}:${node.props.value}`).join(' ')} / ${collectAnyText(macReady)
+        .filter((label) => label.includes('backendUnsupported'))
+        .join(', ')}`,
+    )
+  }
+
   // First run: assets missing and no choice yet -> only the setup guide renders.
   const setupTree = component({
     view: 'page',
@@ -328,12 +439,34 @@ async function main() {
     `${countType(manualTree, 'Input')} inputs`,
   )
 
+  // Once the assets are ready a manual install also collapses to the status row.
+  const manualReady = component({
+    view: 'page',
+    t,
+    useAudioToolkitCard: (selector) =>
+      selector({ ...projection, setupChoice: { text: 'manual', overridden: false, invalid: false } }),
+    useAudioToolkitAssets: (selector) => selector({ ...assetsView, status: { ...assetsView.status, ready: true } }),
+    save: () => {},
+    discard: () => {},
+    edit: () => {},
+  })
+  check(
+    'manual install collapses to the ready row too',
+    collectText(manualReady).some((label) => label.includes('t:assetsReady')) &&
+      !collectText(manualReady).some((label) => label.includes('t:manualTitle')),
+    collectText(manualReady).filter((label) => label.startsWith('t:manual')).join(', '),
+  )
+
   // Once assets are ready the normal form returns.
   check('form returns after the assets are ready', countType(tree, 'Input') > 0, `${countType(tree, 'Input')} inputs`)
 
   // 4. staged values must match the host Config types (DSH writes them verbatim)
   const specOf = (field) => formSpecs.find((spec) => spec.field === field)
-  check('one spec per editable Config field', formSpecs.length === 33, `${formSpecs.length} specs`)
+  check('one spec per form-backed Config field', formSpecs.length === 34, `${formSpecs.length} specs`)
+  check(
+    'the hidden assetsApiPort is projected so the panel can find the service',
+    formSpecs.some((spec) => spec.field === 'assetsApiPort'),
+  )
   for (const field of ['extraArgs', 'ttsSessionOptions', 'asrSessionOptions']) {
     // The host declares these as `Schema.string()`; an array here would be
     // persisted and then fail schema validation on the next load.
@@ -389,6 +522,33 @@ function collectText(node) {
       for (const child of flatten(element.props?.children)) if (typeof child === 'string') out.push(child)
     }
   })
+  return out
+}
+
+/**
+ * Collect every string anywhere in a stub tree, including text inside plain
+ * host elements like `<p>` (walkTree's `visit` only fires for leaf primitives).
+ */
+function collectAnyText(node) {
+  const out = []
+  const recurse = (current) => {
+    if (current === null || current === undefined) return
+    if (Array.isArray(current)) {
+      for (const child of current) recurse(child)
+      return
+    }
+    if (typeof current === 'string') {
+      out.push(current)
+      return
+    }
+    if (typeof current !== 'object') return
+    if (typeof current.component === 'function') {
+      recurse(current.component(current.props))
+      return
+    }
+    recurse(current.props?.children)
+  }
+  recurse(node)
   return out
 }
 

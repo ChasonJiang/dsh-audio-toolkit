@@ -26,7 +26,7 @@ per-user directory on first use.
 
 | Requirement | Notes |
 |---|---|
-| Windows x64 + NVIDIA GPU | Primary target; Linux/macOS builds (CPU/Vulkan/Metal/ROCm) are selectable in the panel |
+| OS / GPU | Windows x64 + NVIDIA (cuda) is the primary target; macOS uses `metal`, Linux uses cuda/cpu/vulkan/rocm. The default backend follows the platform and the panel only offers what that platform can run |
 | Node.js `^22.19` or `>=24` | Declared in `engines` |
 | DeepSeek Harness | Tested against DSH `0.2.2-rc.1` desktop (nightly channel) |
 | [audio.cpp release](https://github.com/0xShug0/audio.cpp/releases) | Installed by the panel (Apache-2.0) |
@@ -45,7 +45,7 @@ Any of these works; nothing has to be placed by hand.
 
 ```text
 plugin_manager(action="install_bundle", target="github:<owner>/dsh-audio-toolkit")
-plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.0")
+plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.1")
 plugin_manager(action="install_bundle", target="link:<absolute path to this repo>")
 ```
 
@@ -71,7 +71,8 @@ existing install is reused as-is.
 
 Proxy, mirror and reuse notes:
 
-- proxy is **opt-in** and configured only in the first-run guide: `assetsProxyEnabled` must be on\n  before `assetsProxy` is used (the fields are not shown in the settings list);
+- proxy is **opt-in** and configured only in the first-run guide: `assetsProxyEnabled` must be on
+  before `assetsProxy` is used (the fields are not shown in the settings list);
 - Hugging Face is often unreachable from mainland China — the downloader falls back to
   `hf-mirror.com`, or set `HF_ENDPOINT` yourself;
 - already have the assets? point `assetsDir` at that directory and press **Refresh**.
@@ -101,8 +102,8 @@ npm run test:smoke  # end-to-end, needs the release, models and a GPU
 npm run docs:contract  # regenerate the tool contract in docs/GUIDE.zh.md
 ```
 
-The suite currently covers config 75, client 33, http 15, api 10 and assets 37 checks; CI runs
-it on Linux and Windows with Node 22 and 24, without binaries, models or a GPU
+The suite currently covers config 84, client 38, http 18, api 12 and assets 43 checks; CI runs
+it on Linux, Windows and macOS with Node 22 and 24, without binaries, models or a GPU
 (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ## Security notes

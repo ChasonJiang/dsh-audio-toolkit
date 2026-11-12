@@ -9,12 +9,12 @@
 
 import { spawn } from 'node:child_process'
 import { chmodSync, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
-import { TOOLKIT_VERSION, isFile } from '../src/config.js'
+import { CLI_BINARY, SERVER_BINARY, TOOLKIT_VERSION, isFile } from '../src/config.js'
 import { extractTarGz, isTarGz } from './tar.mjs'
 import { resolveFfmpeg } from './transcode.mjs'
 import { extractZip } from './zip.mjs'
@@ -77,18 +77,32 @@ export function missingAssets(config) {
 export function assetsReady(config) {
   return missingAssets(config).length === 0
 }
-/** Host `process.platform` → the token used in release asset names. */
-const RELEASE_PLATFORM = { win32: 'windows', linux: 'ubuntu', darwin: 'macos' }
+/**
+ * Platform tokens, both directions.
+ *
+ * The panel sends *release* tokens (`macos`, `ubuntu`, `windows`) while Node
+ * reports *host* tokens (`darwin`, `linux`, `win32`). Mixing them up was the
+ * macOS install bug: `ffmpegSourceUrl('macos')` saw neither `win32` nor `darwin`
+ * and declared the platform unsupported.
+ */
+const RELEASE_PLATFORM = { win32: 'windows', windows: 'windows', linux: 'ubuntu', ubuntu: 'ubuntu', darwin: 'macos', macos: 'macos' }
+const HOST_PLATFORM = { win32: 'win32', windows: 'win32', linux: 'linux', ubuntu: 'linux', darwin: 'darwin', macos: 'darwin' }
 
-/** Release token for a host platform (`win32` → `windows`). */
+/** Release token for a host platform (`win32` → `windows`); idempotent for release tokens. */
 export function releasePlatform(value = process.platform) {
   return RELEASE_PLATFORM[value] ?? String(value)
 }
 
-/** Backend to use when the caller did not choose one. */
-export function defaultBackend(platform) {
-  if (platform === 'macos') return 'metal'
-  if (platform === 'windows') return 'cuda'
+/** Host token for a release token (`macos` → `darwin`); idempotent for host tokens. */
+export function hostPlatform(value = process.platform) {
+  return HOST_PLATFORM[value] ?? String(value)
+}
+
+/** Backend to use when the caller did not choose one (accepts either token style). */
+export function defaultBackend(platform = process.platform) {
+  const host = hostPlatform(platform)
+  if (host === 'darwin') return 'metal'
+  if (host === 'win32') return 'cuda'
   // The Ubuntu CUDA archive is a Colab build; CPU is the safe default there.
   return 'cpu'
 }
@@ -266,13 +280,40 @@ function formatBytes(bytes) {
   return `${value.toFixed(1)} ${units[unit]}`
 }
 
+/** Give the POSIX audio.cpp binaries their executable bit (best effort). */
+function chmodExecutables(dest, host) {
+  if (host === 'win32') return
+  const names = [
+    SERVER_BINARY.endsWith('.exe') ? SERVER_BINARY.slice(0, -4) : SERVER_BINARY,
+    CLI_BINARY.endsWith('.exe') ? CLI_BINARY.slice(0, -4) : CLI_BINARY,
+  ]
+  for (const name of names) {
+    const path = join(dest, name)
+    if (!isFile(path)) continue
+    try {
+      chmodSync(path, 0o755)
+    } catch {
+      /* a read-only volume will fail at spawn with a clearer message */
+    }
+  }
+}
+
 /** Install the audio.cpp release matching the chosen platform/backend. */
 async function installRelease(config, options) {
+  // `options.platform` may be a host token (`darwin`) or a release token
+  // (`macos`); normalize once so the asset name, arch default and chmod all
+  // agree on the target.
+  const platform = releasePlatform(options.platform ?? process.platform)
+  const host = hostPlatform(platform)
   const dest = config.audioCpp.binDir
-  if (isFile(config.engine.exePath)) return
+  if (isFile(config.engine.exePath)) {
+    // A manual copy may be 0644; fix it instead of leaving EACCES for later.
+    chmodExecutables(dest, host)
+    return
+  }
   const { log = () => {}, apiUrl = RELEASE_API } = options
-  const target = { platform: options.platform ?? process.platform, backend: options.backend }
-  const wanted = `${releasePlatform(target.platform)}/${target.backend || 'auto'}`
+  const target = { platform, backend: options.backend }
+  const wanted = `${platform}/${target.backend || 'auto'}`
   log(`[assets] 查询 audio.cpp 最新 release：${apiUrl}（目标 ${wanted}）`)
   const response = await (options.fetchImpl ?? fetch)(apiUrl, {
     headers: { 'user-agent': USER_AGENT, accept: 'application/vnd.github+json' },
@@ -290,6 +331,11 @@ async function installRelease(config, options) {
   const buffer = await downloadBuffer(asset.browser_download_url, { ...options, label: asset.name, phase: 'release' })
   const written = extractArchive(buffer, asset.name, dest)
   log(`[assets] 解压 ${written.length} 个文件到 ${dest}`)
+
+  // `writeFileSync` creates 0644 files, so a POSIX release extracted from a
+  // tar.gz is not executable. Without this, automatic install "succeeds" and
+  // then the engine dies with EACCES — the classic macOS/Linux first-run bug.
+  chmodExecutables(dest, host)
 
   // The runtime archive does not bundle cuBLAS/cuFFT; for CUDA builds the
   // release ships a matching `cudart-*` archive. Flatten its libraries next to
@@ -314,28 +360,44 @@ export const FFMPEG_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-ess
 export const FFMPEG_MACOS_ARM64 = 'https://www.osxexperts.net/ffmpeg80arm.zip'
 export const FFMPEG_MACOS_X64 = 'https://www.osxexperts.net/ffmpeg80intel.zip'
 
-/** Bundled download for a platform, or '' when the platform has none. */
+/**
+ * Bundled download for a platform, or '' when the platform has none.
+ * Accepts either token style (`darwin`/`macos`, `linux`/`ubuntu`).
+ */
 export function ffmpegSourceUrl(platform = process.platform, arch = process.arch) {
-  if (platform === 'win32') return FFMPEG_URL
-  if (platform === 'darwin') return arch === 'arm64' ? FFMPEG_MACOS_ARM64 : FFMPEG_MACOS_X64
+  const host = hostPlatform(platform)
+  if (host === 'win32') return FFMPEG_URL
+  if (host === 'darwin') return arch === 'arm64' ? FFMPEG_MACOS_ARM64 : FFMPEG_MACOS_X64
   return ''
 }
 
 /**
  * Download ffmpeg into the asset root when it is missing.
  *
- * Only the Windows build has a stable direct download; Linux/macOS get a hint to
- * install through the system package manager (the proxy/PATH fallback still
- * applies at runtime).
+ * Windows and macOS have a bundled download (gyan.dev / osxexperts); Linux has
+ * none, so `ensureFfmpeg` fails with a package-manager hint instead of leaving a
+ * half-working install. A user-provided `ffmpegUrl` overrides the source.
  */
 export async function installFfmpeg(config, options = {}) {
   const { log = () => {} } = options
-  const platform = options.platform ?? process.platform
+  const platform = hostPlatform(options.platform ?? process.platform)
   const url = options.ffmpegUrl ?? ffmpegSourceUrl(platform, options.arch ?? process.arch)
   if (!url) return { installed: false, reason: 'unsupported' }
   const dest = dirname(config.audioCpp.ffmpegPath)
-  const target = join(dest, platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
-  if (isFile(target)) return { installed: false, reason: 'exists' }
+  // Honour the configured file name (the default is `ffmpeg` / `ffmpeg.exe`).
+  const target = join(dest, basename(config.audioCpp.ffmpegPath) || (platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'))
+  if (isFile(target)) {
+    // A manually copied binary may lack the executable bit; make it usable
+    // instead of reporting "exists" and failing later at spawn time.
+    if (platform !== 'win32') {
+      try {
+        chmodSync(target, 0o755)
+      } catch {
+        /* read-only volume */
+      }
+    }
+    return { installed: false, reason: 'exists' }
+  }
   const buffer = await downloadBuffer(url, { ...options, label: 'ffmpeg', phase: 'ffmpeg' })
   const written = extractZip(buffer, dest, { filter: (name) => /(^|\/)ffmpeg(\.exe)?$/i.test(name), flatten: true })
   if (!isFile(target)) {
@@ -350,17 +412,19 @@ export async function installFfmpeg(config, options = {}) {
 
 /** Provision ffmpeg when the deployment manages the paths itself. */
 async function ensureFfmpeg(config, options = {}) {
-  const { log = () => {} } = options
   if (resolveFfmpeg(config)) return
   if (!config.assets.derived) return
-  const platform = options.platform ?? process.platform
+  const platform = hostPlatform(options.platform ?? process.platform)
   const url = options.ffmpegUrl ?? ffmpegSourceUrl(platform, options.arch ?? process.arch)
   // ffmpeg is required for transcoding: fail the install instead of leaving a
   // half-working deployment. Linux has no bundled build.
   if (!url) {
-    throw new Error('缺少 ffmpeg：请先用系统包管理器安装（Linux 不提供内置构建），或设置 ffmpegPath')
+    throw new Error(
+      '缺少 ffmpeg：当前平台没有内置构建，请先用系统包管理器安装（macOS 可用 brew install ffmpeg，' +
+        'Linux 用 apt/dnf 等），或设置 ffmpegPath',
+    )
   }
-  await installFfmpeg(config, { ...options, ffmpegUrl: url })
+  await installFfmpeg(config, { ...options, platform, ffmpegUrl: url })
 }
 
 /** Install the three GGUF files. */
@@ -385,22 +449,24 @@ async function installModels(config, options) {
 }
 
 /**
- * Make sure every asset exists, downloading into the resolved asset root when
- * allowed. Throws (EngineError-ish message) when assets are missing and
- * downloading is disabled or impossible.
+ * Download missing assets into the resolved root. Runs in the provision worker
+ * process (or in-process for tests).
+ *
+ * The panel's install checkboxes are honoured through `options.release` /
+ * `options.models`; ffmpeg is always provisioned when it is missing because
+ * every TTS/ASR path needs it.
  *
  * @param {ReturnType<typeof import('../src/config.js').resolveConfig>} config
- * @param {{log?: (message: string) => void, apiUrl?: string, modelBases?: string[], fetchImpl?: typeof fetch}} [options]
- */
-/**
- * Download every missing asset into the resolved root. Runs in the provision
- * worker process (or in-process for tests).
+ * @param {{log?: (message: string) => void, apiUrl?: string, modelBases?: string[],
+ *   fetchImpl?: typeof fetch, release?: boolean, models?: boolean}} [options]
  */
 export async function provisionAssets(config, options = {}) {
   const log = options.log ?? (() => {})
+  const wantsRelease = options.release !== false
+  const wantsModels = options.models !== false
   mkdirSync(config.assets.root, { recursive: true })
-  await installRelease(config, { ...options, log })
-  await installModels(config, { ...options, log })
+  if (wantsRelease) await installRelease(config, { ...options, log })
+  if (wantsModels) await installModels(config, { ...options, log })
   await ensureFfmpeg(config, { ...options, log })
 }
 
@@ -514,6 +580,8 @@ function runInstall(config, options = {}) {
       platform: options.platform,
       backend: options.backend,
       ffmpegUrl: options.ffmpegUrl,
+      release: options.release,
+      models: options.models,
     },
   })
   const script = join(dirname(fileURLToPath(import.meta.url)), 'provision.mjs')
@@ -616,6 +684,9 @@ export async function ensureAssets(config, options = {}) {
  */
 export function startInstall(config, options = {}) {
   assertInstallable(config, options)
+  if (options.release === false && options.models === false) {
+    return { started: false, reason: 'nothing-selected' }
+  }
   const missing = missingAssets(config)
   if (missing.length === 0) return { started: false, reason: 'already-ready' }
   if (install.running) return { started: false, reason: 'busy' }
@@ -683,7 +754,11 @@ export function clearPartial(path) {
 export function deleteAssets(config) {
   assertInstallable(config, { platform: process.platform })
   const removed = []
-  for (const dir of [config.audioCpp.binDir, config.audioCpp.modelsDir]) {
+  // ffmpeg is installed under <root>/bin/ffmpeg by the panel path, not under
+  // bin/audio.cpp or bin/models; leaving it behind made "delete assets" only
+  // partially reclaim the ~110 MB.
+  const directories = [config.audioCpp.binDir, config.audioCpp.modelsDir, join(config.assets.root, 'bin', 'ffmpeg')]
+  for (const dir of new Set(directories)) {
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true })
       removed.push(dir)
@@ -693,7 +768,10 @@ export function deleteAssets(config) {
   if (existsSync(marker)) rmSync(marker, { force: true })
   install.running = false
   install.phase = ''
+  install.file = ''
+  install.done = 0
+  install.total = 0
   install.error = ''
-  install.progress = { phase: '', file: '', done: 0, total: 0 }
+  install.cancelled = false
   return { removed, root: config.assets.root }
 }

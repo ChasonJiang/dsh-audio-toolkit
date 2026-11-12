@@ -5,7 +5,7 @@
 
 ```
 DSH 侧栏「插件」→ 点开 dsh-audio-toolkit 卡片 → 配置区
-   │  36 个可编辑字段，保存即生效（volatile）
+   │  28 个可编辑字段（另有 5 个由安装引导/启停按钮写入），保存即生效（volatile）
    ▼
 dsh-audio-toolkit 宿主插件（src/index.js）
    ├─ 注册 7 个原生工具 audio_toolkit_*
@@ -27,7 +27,7 @@ mcp/server.mjs（可选，给外部 MCP 客户端用）──HTTP──▶ audio
 
 | 目录 / 文件 | 作用 |
 |---|---|
-| `src/index.js` | 宿主插件：36 个扁平 `Config` 字段、引擎启停、状态发布 |
+| `src/index.js` | 宿主插件：扁平 `Config` 字段（28 个面板字段 + 6 个隐藏字段，含 `assetsApiPort`）、引擎启停、状态发布 |
 | `src/client.js` | 浏览器半边：在**插件页**注册配置区（`plugins.bundle.config`，key=包名）并渲染表单（手写 `__ModuleLoader__` bundle，无需构建） |
 | `src/host-tools.js` | 原生工具定义：`audio_toolkit_tts_speak` 等 7 个，复用 `mcp/tools.mjs` 的 handler |
 | `src/engine.js` | 常驻引擎管理器：启动、健康等待、端口释放、停止、重启、配置变更判定（启动时读取面板的最新配置） |
@@ -38,12 +38,12 @@ mcp/server.mjs（可选，给外部 MCP 客户端用）──HTTP──▶ audio
 | `mcp/audiocpp.mjs` | 仅用于 `audio_status` 的 `--list-devices` 一次性 CLI 调用 |
 | `mcp/slots.mjs` | 可取消的并发闸门：被取消的排队调用不会执行 |
 | `mcp/transcode.mjs` | ffmpeg 转码：任意音频 → 16 kHz 单声道 WAV，含 ffmpeg 解析与临时文件清理 |
-| `cordis.patch.yml` | bundle 补丁：插件配置行 + mcp-client 行 |
+| `cordis.patch.yml` | bundle 补丁：插件配置行（原生工具走宿主 registry；`mcp/server.mjs` 可选） |
 | `state/config.json` | 插件写、MCP 读的运行时配置（自动生成） |
 | `state/engine.json` | 每次启动引擎时生成的 audiocpp_server 配置 |
 | `state/engine.log` | 引擎日志（排障先看这里） |
 | `test/config.mjs` | 配置/引擎配置/面板表单契约/原生工具/任务队列 |
-| `test/client.mjs` | 浏览器半边的无头渲染测试（32 字段、控件与暂存值契约） |
+| `test/client.mjs` | 浏览器半边的无头渲染测试（33 个表单字段、平台后端、控件与暂存值契约） |
 | `test/http.mjs` | 网络层：超时覆盖响应体、已取消信号不发请求、取消正在执行的调用 |
 | `test/smoke.mjs` | 端到端：起一个私有引擎→跑全部工具→停引擎→验证错误提示 |
 | `scripts/tool_contract.mjs` | 从代码生成本文档的「工具契约」章节，并校验它与代码一致（`--write` / `--check`） |
@@ -74,7 +74,7 @@ bin/
 3. 详情页里会出现 **配置区**（`data-plugin-config` 那一段）：
    - 顶部 **状态条**：引擎启停状态、端口、是否有未保存修改；
    - **启动引擎 / 停止引擎** 按钮（同时写 `engineEnabled` 并调用宿主接口，立即生效；按钮状态取自引擎实际运行状态）；
-   - 六张 **分组卡片**（引擎 / MCP / audio.cpp / TTS / ASR / 输出），共 36 个字段；
+   - 六张 **分组卡片**（引擎 / MCP / audio.cpp / TTS / ASR / 输出），共 28 个可编辑字段；
    - 控件按类型选：**开关**（布尔）、**分段控件**（后端、语言、分块方式）、**数字输入 + 单位标签**（超时、端口、线程数、分块秒数）、**输入框**（路径/文本）、**输入框 + 分词标签**（extraArgs / session options）；
    - 每个字段显示中文名、真实配置键（等宽小字）与说明；被覆盖过的字段出现 **已覆盖** 标签和 **恢复默认** 按钮，非法输入就地提示。
 4. 改完点 **保存**：配置写入 profile patch → 引擎按需重启/启停 → 工具下次调用即用新值。**不需要重启 DSH**。
@@ -104,7 +104,7 @@ bin/
 | `assetsApiPort` | `8789` | 面板「运行时依赖」用的本地服务端口（只绑 127.0.0.1，被占用时自动顺延） |
 | `binDir` / `cliPath` / `modelsDir` | 自动 | 分别默认 `<assetsDir>/bin/audio.cpp`、`<binDir>/audiocpp_cli.exe`、`<assetsDir>/bin/models` |
 | `ffmpegPath` | 自动 | 默认 `<assetsDir>/bin/ffmpeg/ffmpeg`（Windows 为 `ffmpeg.exe`）；也可填所在目录；找不到时回退 PATH |
-| `backend` / `device` / `threads` | `cuda` / `0` / `0` | 后端与设备（改动会重启引擎；VAD 也跟随 device/threads） |
+| `backend` / `device` / `threads` | 按平台：Windows `cuda`、macOS `metal`、Linux `cpu` | 后端与设备（改动会重启引擎；VAD 也跟随 device/threads）。面板只列出本机可运行的后端；配置文件里的旧值若与平台不匹配，`resolveConfig` 会回退到平台默认值并在 `host.log` 里警告（例如 macOS 上的 `cuda` → `metal`） |
 | `extraArgs` | 空 | 追加给 `audiocpp_server` 的启动参数（空格分隔，最后一个生效） |
 | `ttsFamily` / `ttsModel` | `index_tts2` / **fp16 GGUF** | TTS 模型 |
 | `ttsDefaultVoiceRef` | 空 | 默认参考音色；IndexTTS2.5 必须有参考音色 |
@@ -358,7 +358,7 @@ SenseVoice 本身**不产出**句子/词边界（CTC 模型，输出整段文本
 
 ```text
 plugin_manager(action="install_bundle", target="github:<owner>/dsh-audio-toolkit")   # 从 Git 安装
-plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.0")            # 从 npm 安装
+plugin_manager(action="install_bundle", target="dsh-audio-toolkit@0.8.1")            # 从 npm 安装
 plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-toolkit")  # 本地开发
 ```
 
@@ -366,20 +366,22 @@ plugin_manager(action="install_bundle", target="link:<绝对路径>/dsh-audio-to
 其余配置项在安装完成后才出现（门控看的是资产状态，不是用户选没选）。
 
 - 引导页说明依赖是什么、要占多少空间，并给两个选择：**自动安装（推荐）** / **手动下载**；
-- **ffmpeg 是必需依赖**：自动安装在 Windows（官方构建）与 macOS（osxexperts arm64/intel）会一并下载；Linux 请先用系统包管理器安装，否则安装会报错。
+- **ffmpeg 是必需依赖**：自动安装在 Windows（官方构建）与 macOS（osxexperts arm64/intel）会一并下载；Linux 请先用系统包管理器安装，否则安装会以「缺少 ffmpeg」报错（已下载的 release/模型会保留，装好 ffmpeg 后再点一次即可）。
+- 自动安装解压 `.tar.gz` 后会保留/补上可执行位（macOS/Linux 的 `audiocpp_server`、`audiocpp_cli`），不需要再手动 `chmod`；面板的「安装内容」勾选现在会真正生效（只装运行时或只装模型），两项都不选会被拒绝。
 - 选 **自动安装**：进入安装页，点卡片里的 **「安装所缺依赖」** 才真正开始下载（切换方式不会触发下载）；
   代理默认关闭，勾选「使用代理下载」后代理输入框才可填写；
 - 选 **手动下载**：页面按当前平台/后端给出**具体指引**——release 包名（如 `audio-vX-bin-ubuntu-x64-cpu.tar.gz`，CUDA 需同版本 cudart；Linux/macOS 解压后 `chmod +x audiocpp_server`）、三个模型的目录、ffmpeg 位置（Windows 放 `bin/ffmpeg/ffmpeg.exe`，其它平台用包管理器），另有 `assetsDir` 输入，
   放好后点「刷新状态」；
 - 两种方式可随时切换：自动页有「改用手动下载」，手动页有「改用自动安装」；手动页还列出了下载来源。
 - 依赖就绪后引导页与安装控件都会消失：面板只剩一行 ✓ 已就绪 · 体积 · [删除依赖]，其余是配置项。
-- 「删除依赖」会先停引擎再删 `bin/audio.cpp` 与 `bin/models`（仅当路径由插件自动管理时可用），删完回到安装引导。
+- 「删除依赖」会先停引擎再删 `bin/audio.cpp`、`bin/models` 与 `bin/ffmpeg`（仅当路径由插件自动管理时可用），删完回到安装引导。
 
 - 状态：`✓ 已就绪` 或 `缺少：audio.cpp 运行时 / TTS 模型 / …`，并显示已占磁盘大小；
-- 选项：勾选 **audio.cpp 运行时**、**GGUF 模型**，按需安装（也可填 `assetsProxy` 走代理）；
-- 目标：**平台 / 后端** 下拉框。默认 = 本机平台 + 面板里的 `backend`（Windows→cuda、macOS→metal、
+- 选项：勾选 **audio.cpp 运行时**、**GGUF 模型**，按需安装（两项都不选时安装按钮禁用）；
+- 目标：**平台 / 后端** 下拉框。默认 = 本机平台 + 生效的 `backend`（Windows→cuda、macOS→metal、
   Ubuntu→cpu），可选 cuda / cpu / vulkan / rocm / metal。安装时从 release 里挑对应构建
   （Windows 为 `.zip`，Linux/macOS 为 `.tar.gz`；CUDA 还顺带装匹配版本的 `cudart`）。
+  选中的平台/后端会随安装请求一起发出，不会因为下拉框“看起来是默认值”而退回 CUDA。
   跨平台选择会被拒绝——本机跑不了别的平台二进制；
 - 按钮：**安装所缺依赖** / **取消安装** / **刷新状态**；进行中显示进度条、当前文件、百分比与速度对应的字节数；
 - 默认写入 `~/.dsh/audio-toolkit`。已有资产时把 `assetsDir` 指过去即可复用（`link:` 安装自动用仓库内 `bin/`）。
@@ -412,10 +414,10 @@ plugin_manager(action="remove_bundle", target="dsh-audio-toolkit")
 
 ```powershell
 # 在仓库根目录执行；node 需 >= 22.19
-node .\test\config.mjs    # 配置/表单契约/原生工具/队列/WAV 流式解码/静音回退（74 项）
-node .\test\client.mjs    # 浏览器半边无头渲染与暂存值契约（33 项）
-node .\test\http.mjs      # 超时/取消/分块透传（受限沙箱 14 项，含 MCP 端到端共 20 项）
-node .\test\assets.mjs    # 资产发现/下载/解压/续传/镜像回退（23 项，本地 HTTP，无需联网）
+node .\test\config.mjs    # 配置/表单契约/原生工具/队列/平台后端/WAV 流式解码（84 项）
+node .\test\client.mjs    # 浏览器半边无头渲染、macOS 后端与暂存值契约（38 项）
+node .\test\http.mjs      # 超时/取消/分块透传/MCP 协议与健康检查（18 项，受限沙箱会跳过 spawn 用例）
+node .\test\assets.mjs    # 资产发现/下载/解压/续传/镜像回退/安装选项（43 项，本地 HTTP，无需联网）
 node .\test\smoke.mjs --extended  # 独立 MCP 服务端到端，需 danger-full-access
 node .\scripts\tool_contract.mjs --check  # 校验 README 的工具契约与代码一致
 python .\scripts\check_scripts.py        # Python 辅助脚本自检（本地 HTTP，无需联网）
@@ -440,9 +442,13 @@ node .\scripts\tool_contract.mjs --write   # 或 npm run docs:contract
 | 现象 | 处理 |
 |---|---|
 | 插件面板详情页没有配置区 | 先确认 `state/host.log` 里有 `配置：...` 和 `已注册工具：...`；再确认 bundle 已启用、`package.json` 的 `dsh.client.platform = "web"` 且 `exports["./client"]` 指向 `src/client.js`。改过 client 要重载插件并**刷新页面**（浏览器需重新拉 client bundle） |
-| 配置区在但字段为空 | 宿主没提供该命名空间：命名空间 = Loader 条目 id `audio-toolkit`，`settings.describe()` 必须返回它（`test/config.mjs` 校验过 36 个扁平字段） |
+| 配置区在但字段为空 | 宿主没提供该命名空间：命名空间 = Loader 条目 id `audio-toolkit`，`settings.describe()` 必须返回它（`test/config.mjs` 校验过 41 个扁平字段） |
 | 工具没出现 | `state/host.log` 里找 `已注册工具` 或 `注册 audio_toolkit_* 工具失败`；该插件必须 `inject: ['tools']`，否则 Cordis 会拒绝读取 `ctx.tools` |
 | 工具报"引擎未运行" | 面板里点 **启动引擎**（或把 `engineEnabled` 设 true 保存）；看 `state/engine.log` |
+| 工具调用很久不返回 / 像卡死 | 已加看门狗：超过 `toolCallTimeoutMs + 15s` 会返回明确错误而不会再无声挂起。先看 `state/host.log` 与 `state/engine.log`：首次请求要加载 4.5 GB TTS 权重（macOS Metal 上通常 1–3 分钟），期间没有进度输出；确认 `backend` 与平台匹配，必要时调大 `toolCallTimeoutMs`。若你用的是**独立 MCP 客户端**而不是原生工具，注意它自己的 `toolCallTimeoutMs` 默认可能只有 60s，需要一并调大，否则客户端会先超时 |
+| macOS 上后端显示 `cuda` / 引擎启动失败 | 旧配置里的 `backend: cuda` 会在 macOS 上自动回退到 `metal`（`host.log` 有 WARN）。打开面板把「推理后端」重新选成 `metal` 并保存即可消除该 WARN；面板现在只显示本机可用的后端 |
+| macOS 自动安装成功但引擎 `EACCES` | 旧版本解压 `.tar.gz` 后没有可执行位。升级到 0.8.1+ 后重新安装；手动安装时执行 `chmod +x audiocpp_server audiocpp_cli` |
+| macOS 自动安装报“缺少 ffmpeg” | 0.8.1 之前面板传的是 `macos` 而不是 `darwin`，导致 ffmpeg 下载 URL 为空；升级后重试。也可以 `brew install ffmpeg` 后点「刷新状态」 |
 | 端口被占用 | 面板改 `enginePort` 保存，引擎会自动重启到新端口 |
 | `audiocpp_server.exe` 立刻退出 | 缺 CUDA 13 运行时 DLL：`python scripts/fetch_cuda_runtime.py` |
 | 从 npm / github 安装后引擎起不来 | 面板「运行时依赖」应该显示「缺少」：点 **安装所缺依赖**。安装失败看 `state/host.log` 的 `[assets]` 行（网络→填 `assetsProxy` 或设 `HF_ENDPOINT`；磁盘要留约 6 GB）。已有资产就把 `assetsDir` 指向它 |
@@ -456,7 +462,7 @@ node .\scripts\tool_contract.mjs --write   # 或 npm run docs:contract
 - 词级时间戳：本 release 的 `sense_asr` 规格没有 `return_timestamps`（`--words-out` 无输出）；工具改用 VAD 切句的**句级**时间戳（`timestamps: true`）。
 - 情绪文本只对 IndexTTS 家族有效（内部映射为 `use_emotion_text` + `emotion_text`）。
 - 配置面板里的路径字段是**输入框**（没有系统文件选择器可选）；列表字段用空格分隔，输入框下方会用标签把解析结果展示出来。
-- 原生工具名固定为 `audio_toolkit_*`；`mcpServerName` 只作为独立 MCP 服务的 `serverInfo.name`，工具前缀（`mcp__<server>__`）由 DSH 侧 MCP 客户端那一行决定，不受它影响。
+- 原生工具名固定为 `audio_toolkit_*`（走宿主 registry，不经过 MCP 命名）；`mcpServerName` 只作为独立 MCP 服务的 `serverInfo.name`，若你另行接入 `dsh-mcp-client`，工具前缀（`mcp__<server>__`）由那一行决定。
 
 ## 八、目录约定
 

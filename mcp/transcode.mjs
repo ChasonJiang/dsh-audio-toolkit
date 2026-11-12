@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { EngineError } from './engine.mjs'
 import { runCli } from './audiocpp.mjs'
-import { ffmpegFallbackPath, findOnPath } from '../src/config.js'
+import { FFMPEG_BINARY, ffmpegFallbackPath, findOnPath } from '../src/config.js'
 import { readWavFormat, WavError } from '../src/wav.js'
 
 /** Target layout every consumer (engine + sentence timeline) accepts. */
@@ -60,7 +60,8 @@ export function resolveFfmpeg(cfg) {
   const configured = cfg?.audioCpp?.ffmpegPath
   if (configured) {
     if (isDirectory(configured)) {
-      const inside = join(configured, 'ffmpeg.exe')
+      // Platform binary name: `ffmpeg` on macOS/Linux, `ffmpeg.exe` on Windows.
+      const inside = join(configured, FFMPEG_BINARY)
       if (existsSync(inside)) return inside
     } else if (existsSync(configured)) {
       return configured
@@ -85,8 +86,8 @@ export async function transcodeTo16kWav({ inputPath, cfg, workDir, timeoutMs }) 
   if (!ffmpeg) {
     throw new EngineError(
       `需要 ffmpeg 把 ${basename(inputPath)} 转成 16 kHz 单声道 WAV，但没有找到 ffmpeg。` +
-        `请在插件面板把「ffmpeg 路径」指向 ffmpeg.exe（或它所在目录），或把 ffmpeg.exe 放到 ${join(cfg.audioCpp.binDir, '..', 'ffmpeg')}，` +
-        '也可以把它加入 PATH。',
+        `请在插件面板把「ffmpeg 路径」指向 ${FFMPEG_BINARY}（或它所在目录），` +
+        `或把 ${FFMPEG_BINARY} 放到 ${join(cfg.audioCpp.binDir, '..', 'ffmpeg', FFMPEG_BINARY)}，也可以把它加入 PATH。`,
       { inputPath, configured: cfg.audioCpp.ffmpegPath },
     )
   }

@@ -91,11 +91,13 @@ window.__ModuleLoader__.load({
 			assetsModels: 'GGUF 模型',
 			assetsRoot: '资产目录',
 			assetsPortDown: '依赖服务未就绪（插件刚重载时稍等再刷新）',
-			assetsUnavailable: '当前平台不支持自动安装（仅 Windows/CUDA）',
+			assetsUnavailable: '当前平台不支持自动安装，请手动放置依赖',
+			assetsPickOne: '至少勾选一项：audio.cpp 运行时或 GGUF 模型。',
 			assetsOptions: '安装内容',
 			assetsTarget: '目标平台 / 后端',
+			backendUnsupported: '已保存的后端在当前平台不可用，引擎会回退到：',
 			assetsDelete: '删除依赖',
-			assetsDeleteConfirm: '删除已安装的运行时依赖？会停止引擎并删除 bin/audio.cpp 与 bin/models。',
+			assetsDeleteConfirm: '删除已安装的运行时依赖？会停止引擎并删除 bin/audio.cpp、bin/models 与 bin/ffmpeg。',
 		}
 
 		const en = {
@@ -139,11 +141,13 @@ window.__ModuleLoader__.load({
 			assetsModels: 'GGUF models',
 			assetsRoot: 'Asset directory',
 			assetsPortDown: 'Asset service not reachable yet (retry after the plugin finishes reloading)',
-			assetsUnavailable: 'Automatic install is Windows/CUDA only',
+			assetsUnavailable: 'Automatic install is unavailable on this platform; place the assets manually',
+			assetsPickOne: 'Select at least one: the audio.cpp runtime or the GGUF models.',
 			assetsOptions: 'Install',
 			assetsTarget: 'Platform / backend',
+			backendUnsupported: 'The saved backend is unavailable on this platform; the engine falls back to:',
 			assetsDelete: 'Delete assets',
-			assetsDeleteConfirm: 'Delete the installed runtime assets? This stops the engine and removes bin/audio.cpp and bin/models.',
+			assetsDeleteConfirm: 'Delete the installed runtime assets? This stops the engine and removes bin/audio.cpp, bin/models and bin/ffmpeg.',
 			assetsNotReady: 'Assets are not installed yet: the engine cannot start. Use “Install missing assets” above.',
 			assetsProxyMissing: '⚠ No proxy configured; downloads fail when GitHub / Hugging Face is unreachable (set assetsProxy).',
 			setupTitle: 'First run: prepare runtime assets',
@@ -283,7 +287,7 @@ window.__ModuleLoader__.load({
 				key: 'sectionAudioCpp',
 				fields: [
 					{ field: 'assetsDir', label: '资产根目录', hint: '存放 bin/audio.cpp、bin/models 与 bin/ffmpeg。留空 = 自动：包内 bin/ → 环境变量 DSH_AUDIO_TOOLKIT_ASSETS → ~/.dsh/audio-toolkit。', kind: 'text', placeholder: '自动' },
-					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启；须与安装依赖时选择的后端一致（例如装的是 CUDA 版就选 cuda）。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan'] },
+					{ field: 'backend', label: '推理后端', hint: '改后引擎自动重启；须与安装依赖时选择的后端一致（macOS 用 metal，Windows 用 cuda/vulkan，Linux 用 cuda/vulkan/rocm）。', kind: 'enum', values: ['cuda', 'cpu', 'vulkan', 'rocm', 'metal'] },
 					{ field: 'device', label: 'GPU 序号', hint: '多卡时选择设备。', kind: 'number' },
 					{ field: 'threads', label: '线程数', hint: '0 = 自动。', kind: 'number' },
 					{ field: 'extraArgs', label: '额外参数', hint: '空格分隔；一般留空。', kind: 'list' },
@@ -339,6 +343,10 @@ window.__ModuleLoader__.load({
 			specs.push(booleanSpec('assetsAutoDownload'))
 			specs.push(booleanSpec('assetsProxyEnabled'))
 			specs.push(textSpec('assetsProxy'))
+			// Hidden, but the panel must read it: the loopback service may have
+			// walked forward from the configured port, and the store probes around
+			// this value.
+			specs.push(numberSpec('assetsApiPort'))
 			return specs
 		}
 		//#endregion
@@ -362,6 +370,7 @@ window.__ModuleLoader__.load({
 				projected.assetsAutoDownload = this.form.field('assetsAutoDownload')
 				projected.assetsProxyEnabled = this.form.field('assetsProxyEnabled')
 				projected.assetsProxy = this.form.field('assetsProxy')
+				projected.assetsApiPort = this.form.field('assetsApiPort')
 				return projected
 			}
 
@@ -386,6 +395,42 @@ window.__ModuleLoader__.load({
 		const ASSET_BACKENDS = ['auto', 'cuda', 'cpu', 'vulkan', 'rocm', 'metal']
 		/** Host token → release platform token. */
 		const HOST_PLATFORM = { win32: 'windows', linux: 'ubuntu', darwin: 'macos' }
+		/** Backends each host platform can actually run (mirrors src/config.js). */
+		const BACKENDS_BY_PLATFORM = {
+			win32: ['cuda', 'cpu', 'vulkan'],
+			linux: ['cuda', 'cpu', 'vulkan', 'rocm'],
+			darwin: ['metal', 'cpu'],
+		}
+		/** Backend used when the field has never been overridden. */
+		function defaultBackendFor(platform) {
+			if (platform === 'darwin' || platform === 'macos') return 'metal'
+			if (platform === 'win32' || platform === 'windows') return 'cuda'
+			return 'cpu'
+		}
+		/** Valid backends for one host platform; `provided` comes from /status. */
+		function backendsFor(platform, provided) {
+			if (Array.isArray(provided) && provided.length > 0) return provided
+			const host = { macos: 'darwin', windows: 'win32', ubuntu: 'linux' }[platform] ?? platform
+			return BACKENDS_BY_PLATFORM[host] ?? ['cpu']
+		}
+		/**
+		 * Host platform when the asset service has not answered yet.
+		 *
+		 * The first render can race the `/status` poll; picking the wrong backend
+		 * there would show `cuda` on a Mac, so fall back to the browser's platform.
+		 */
+		function detectHostPlatform() {
+			try {
+				const nav = typeof navigator === 'undefined' ? undefined : navigator
+				const token = String(nav?.platform ?? '') || String(nav?.userAgent ?? '')
+				if (/mac/i.test(token)) return 'darwin'
+				if (/linux/i.test(token) && !/android/i.test(token)) return 'linux'
+				if (/win/i.test(token)) return 'win32'
+			} catch {
+				/* fall through */
+			}
+			return 'win32'
+		}
 		/** Small helper so the card does not import a formatter. */
 		function formatBytes(value) {
 			const units = ['B', 'KiB', 'MiB', 'GiB']
@@ -493,6 +538,28 @@ window.__ModuleLoader__.load({
 				this.emit({ options: { ...this.view.options, [key]: value } })
 			}
 
+			/**
+			 * Fetch with a deadline.
+			 *
+			 * A loopback request normally answers in milliseconds, but if the host
+			 * event loop is busy (a model load, a huge asset walk) an unbounded fetch
+			 * would leave `inflight` true forever and stop every later poll — the
+			 * panel would look frozen on its loading state.
+			 */
+			async requestText(url, options = {}, timeoutMs = 2500) {
+				const controller = new AbortController()
+				const timer = setTimeout(() => controller.abort(), timeoutMs)
+				try {
+					const response = await fetch(url, { ...options, signal: controller.signal })
+					// Read the body inside the deadline too: a server that answers
+					// headers and then stalls would otherwise keep `inflight` set forever.
+					const text = await response.text()
+					return { response, text }
+				} finally {
+					clearTimeout(timer)
+				}
+			}
+
 			async refresh() {
 				if (this.inflight) return
 				this.inflight = true
@@ -500,9 +567,13 @@ window.__ModuleLoader__.load({
 					const candidates = this.port ? [this.port] : Array.from({ length: 6 }, (_, index) => this.basePort + index)
 					for (const port of candidates) {
 						try {
-							const response = await fetch(`http://127.0.0.1:${port}/status`, { cache: 'no-store' })
+							const { response, text } = await this.requestText(
+								`http://127.0.0.1:${port}/status`,
+								{ cache: 'no-store' },
+								3000,
+							)
 							if (!response.ok) continue
-							const status = await response.json()
+							const status = JSON.parse(text)
 							this.port = port
 							this.emit({ loading: false, error: '', status })
 							return
@@ -517,21 +588,26 @@ window.__ModuleLoader__.load({
 				}
 			}
 
-			async post(pathname, body) {
+			async post(pathname, body, timeoutMs = 30_000) {
 				if (!this.port) await this.refresh()
 				if (!this.port) {
 					this.emit({ actionError: '依赖服务不可达（插件刚重载时稍等再试）' })
 					return
 				}
 				try {
-					const response = await fetch(`http://127.0.0.1:${this.port}${pathname}`, {
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify(body ?? {}),
-					})
+					// Deleting stops the engine first (up to ~15 s) and starting it waits
+					// for /health (up to 90 s), so the default is not enough for both.
+					const { response, text } = await this.requestText(
+						`http://127.0.0.1:${this.port}${pathname}`,
+						{
+							method: 'POST',
+							headers: { 'content-type': 'application/json' },
+							body: JSON.stringify(body ?? {}),
+						},
+						timeoutMs,
+					)
 					if (!response.ok) {
-						const detail = await response.text().catch(() => '')
-						this.emit({ actionError: `安装请求被拒绝：HTTP ${response.status}${detail ? ` · ${detail.slice(0, 160)}` : ''}` })
+						this.emit({ actionError: `安装请求被拒绝：HTTP ${response.status}${text ? ` · ${text.slice(0, 160)}` : ''}` })
 						return
 					}
 					this.emit({ actionError: '' })
@@ -543,15 +619,23 @@ window.__ModuleLoader__.load({
 			}
 
 			install() {
-				return this.post('/install', { ...this.view.options })
+				// The selects display a default that is not stored in `options`
+				// until the user touches them; resolve it here so an install on
+				// macOS never falls back to a CUDA build because of an empty value.
+				const platform =
+					this.view.options.platform || HOST_PLATFORM[this.view.status?.platform] || 'windows'
+				const backend =
+					this.view.options.backend || String(this.view.status?.backend ?? '') || 'auto'
+				return this.post('/install', { ...this.view.options, platform, backend })
 			}
 
 			startEngine() {
-				return this.post('/engine/start', {})
+				// The host waits up to 90 s for /health before answering.
+				return this.post('/engine/start', {}, 120_000)
 			}
 
 			stopEngine() {
-				return this.post('/engine/stop', {})
+				return this.post('/engine/stop', {}, 30_000)
 			}
 
 			async remove(question) {
@@ -611,17 +695,25 @@ window.__ModuleLoader__.load({
 			const done = Number(install?.done) || 0
 			const percent = running && total > 0 ? Math.min(100, Math.floor((done / total) * 100)) : 0
 			const writable = Boolean(state?.writable)
-			const windows = status?.platform === 'win32'
+			// Windows, macOS and Linux all have an installer; the panel used to
+			// disable this button everywhere except Windows even though the asset
+			// layer already shipped macOS/Linux support.
+			const supported = status
+				? status.install_supported ?? ['win32', 'linux', 'darwin'].includes(status.platform)
+				: false
+			const sizesInfo = status?.sizes ?? { release: 0, models: 0 }
+			const parts = assets.options ?? { release: true, models: true }
 			// Ready: the guide and the install controls disappear; only a compact
-			// status row with a delete action remains.
-			if (ready && !manual) {
+			// status row with a delete action remains (also for a manual install —
+			// otherwise that mode kept showing the place-the-files instructions).
+			if (ready) {
 				return jsxs(
 					'div',
 					{
 						style: { ...STYLE.row, padding: '4px 0' },
 						children: [
 							jsx(prim.Tag, { tone: 'neutral', children: `✓ ${t('assetsReady')}` }, 'badge'),
-							jsx('code', { style: STYLE.code, children: formatBytes(status.sizes.release + status.sizes.models) }, 'size'),
+							jsx('code', { style: STYLE.code, children: formatBytes(sizesInfo.release + sizesInfo.models) }, 'size'),
 							jsx('span', { style: { ...STYLE.hint, flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis' }, children: status.root }, 'root'),
 							jsx(
 								prim.Button,
@@ -648,7 +740,7 @@ window.__ModuleLoader__.load({
 			)
 
 			const sizes = status
-				? jsx('code', { style: STYLE.code, children: `${formatBytes(status.sizes.release + status.sizes.models)}` }, 'sizes')
+				? jsx('code', { style: STYLE.code, children: `${formatBytes(sizesInfo.release + sizesInfo.models)}` }, 'sizes')
 				: null
 
 			const progress = running
@@ -689,8 +781,12 @@ window.__ModuleLoader__.load({
 			)
 
 			const platform = assets.options.platform || HOST_PLATFORM[status?.platform] || 'windows'
+			// Prefer the host's effective backend (already normalized for the
+			// platform) over the raw config text, which may still say `cuda` on a Mac.
+			const effectiveBackend = String(status?.backend ?? '')
 			const configuredBackend = String(state?.backend?.text ?? '')
-			const backend = assets.options.backend || (['cuda', 'cpu', 'vulkan'].includes(configuredBackend) ? configuredBackend : 'auto')
+			const backendChoice = effectiveBackend || configuredBackend
+			const backend = assets.options.backend || (ASSET_BACKENDS.includes(backendChoice) && backendChoice !== 'auto' ? backendChoice : 'auto')
 			const selects = jsxs(
 				'div',
 				{
@@ -751,7 +847,7 @@ window.__ModuleLoader__.load({
 						{
 							style: STYLE.control,
 							children: [
-								jsx(prim.Button, { variant: 'primary', disabled: ready || running || !writable || !windows, onClick: () => assets.install(), children: t('assetsInstallAll') }, 'install'),
+								jsx(prim.Button, { variant: 'primary', disabled: ready || running || !writable || !supported || (!parts.release && !parts.models), onClick: () => assets.install(), children: t('assetsInstallAll') }, 'install'),
 								jsx(prim.Button, { variant: 'outline', disabled: !running, onClick: () => assets.cancel(), children: t('assetsCancel') }, 'cancel'),
 								jsx(prim.Button, { variant: 'outline', onClick: () => assets.refresh(), children: t('assetsRefresh') }, 'refresh'),
 							],
@@ -759,8 +855,18 @@ window.__ModuleLoader__.load({
 						'actions',
 					)
 
+			const pickOne = !manual && !running && !parts.release && !parts.models
 			const note = status
-				? jsx('p', { style: STYLE.hint, children: `${t('assetsRoot')}: ${status.root}${windows ? '' : ` · ${t('assetsUnavailable')}`}` }, 'note')
+				? jsx(
+						'p',
+						{
+							style: pickOne ? STYLE.invalid : STYLE.hint,
+							children: pickOne
+								? t('assetsPickOne')
+								: `${t('assetsRoot')}: ${status.root}${supported ? '' : ` · ${t('assetsUnavailable')}`}`,
+						},
+						'note',
+					)
 				: jsx('p', { style: STYLE.hint, children: assets.loading ? '…' : t('assetsPortDown') }, 'note')
 
 			return jsxs(
@@ -973,10 +1079,16 @@ window.__ModuleLoader__.load({
 
 		/** Enum field rendered as a segmented control. */
 		function EnumField(props) {
-			const { entry, state, edit, resetField, t } = props
+			const { entry, state, edit, resetField, t, platform, backends } = props
 			const fieldState = state[entry.field] ?? { text: '' }
-			const options = entry.values.map((value) => ({ value, label: value }))
-			const value = entry.values.includes(fieldState.text) ? fieldState.text : entry.values[0]
+			// The backend list is platform-specific: offering `cuda` on a Mac is how
+			// the panel ended up unusable there.
+			const values = entry.field === 'backend' ? backendsFor(platform, backends) : entry.values
+			const defaultValue = entry.field === 'backend' ? defaultBackendFor(platform) : values[0]
+			const fallback = values.includes(defaultValue) ? defaultValue : values[0]
+			const value = values.includes(fieldState.text) ? fieldState.text : fallback
+			const unsupported = entry.field === 'backend' && Boolean(fieldState.text) && !values.includes(fieldState.text)
+			const options = values.map((option) => ({ value: option, label: option }))
 			return jsx(
 				Row,
 				{
@@ -985,22 +1097,31 @@ window.__ModuleLoader__.load({
 					t,
 					stacked: true,
 					onReset: () => resetField(entry.field),
-					children: jsx(
+					children: jsxs(
 						'div',
 						{
 							style: { paddingTop: 2 },
-							children: jsx(
-								prim.SegmentedControl,
-								{
-									id: `audio-toolkit-${entry.field}`,
-									value,
-									options,
-									label: entry.label,
-									disabled: !state.writable,
-									onChange: (next) => edit(entry.field, next),
-								},
-								'segments',
-							),
+							children: [
+								jsx(
+									prim.SegmentedControl,
+									{
+										id: `audio-toolkit-${entry.field}`,
+										value,
+										options,
+										label: entry.label,
+										disabled: !state.writable,
+										onChange: (next) => edit(entry.field, next),
+									},
+									'segments',
+								),
+								unsupported
+									? jsx(
+											'p',
+											{ style: STYLE.invalid, children: `${t('backendUnsupported')} ${value}` },
+											'backend-unsupported',
+										)
+									: null,
+							],
 						},
 						'segments-host',
 					),
@@ -1129,10 +1250,15 @@ window.__ModuleLoader__.load({
 				const proxyEnabled = String(state.assetsProxyEnabled?.text ?? '').toLowerCase() === 'true'
 
 				// Platform-specific manual instructions (the release names differ).
-				const statusPlatform = assets?.status?.platform ?? ''
+				const statusPlatform = assets?.status?.platform ?? detectHostPlatform()
 				const osToken = { win32: 'windows', linux: 'ubuntu', darwin: 'macos' }[statusPlatform] ?? 'windows'
 				const arch = assets?.status?.arch === 'arm64' ? 'arm64' : 'x64'
-				const manualBackend = String(state.backend?.text ?? '') || (osToken === 'macos' ? 'metal' : 'cuda')
+				// The effective backend from the host already had the platform
+				// fallback applied (`cuda` on a Mac becomes `metal`).
+				const manualBackend =
+					String(assets?.status?.backend ?? '') ||
+					String(state.backend?.text ?? '') ||
+					defaultBackendFor(statusPlatform)
 				const archiveExt = osToken === 'windows' ? '.zip' : '.tar.gz'
 				const releaseExample = `audio-vX-bin-${osToken}-${arch}-${manualBackend}${archiveExt}`
 				const serverName = osToken === 'windows' ? 'audiocpp_server.exe' : 'audiocpp_server'
@@ -1146,7 +1272,7 @@ window.__ModuleLoader__.load({
 							]
 						: osToken === 'macos'
 							? [
-									['release', `下载 ${releaseExample}（release 目前只提供 arm64 的 metal 构建），解压到 <root>/bin/audio.cpp，并 chmod +x ${serverName}。`],
+									['release', `下载 ${releaseExample}（按 CPU 架构选择：Apple Silicon arm64、Intel x64；上游若没有对应构建就只能手动放置），解压到 <root>/bin/audio.cpp，并 chmod +x ${serverName}。`],
 									['models', '三个模型放到 <root>/bin/models/{IndexTTS2.5-GGUF,SenseVoice-Small-GGUF,PulseVAD-GGUF}。'],
 									['ffmpeg', `自动安装会下载 osxexperts 的 ffmpeg（按 arm64/intel 选择）；手动时用 brew install ffmpeg，或放到 <root>/bin/ffmpeg/${ffmpegName}。`],
 								]
@@ -1287,7 +1413,19 @@ window.__ModuleLoader__.load({
 								'head',
 							),
 							...section.fields.map((entry) =>
-								jsx(Field, { t, entry, state, edit: props.edit, resetField: props.resetField }, entry.field),
+								jsx(
+									Field,
+									{
+										t,
+										entry,
+										state,
+										edit: props.edit,
+										resetField: props.resetField,
+										platform: assets?.status?.platform || detectHostPlatform(),
+										backends: assets?.status?.backends,
+									},
+									entry.field,
+								),
 							),
 						],
 					},
