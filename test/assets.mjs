@@ -104,7 +104,7 @@ function makeTar(files, mode = '0000644\0') {
   blocks.push(Buffer.alloc(1024))
   return Buffer.concat(blocks)
 }
-const makeTarGz = (files) => gzipSync(makeTar(files))
+const makeTarGz = (files, mode) => gzipSync(makeTar(files, mode))
 
 const runtimeZip = makeZip({
   'audio-v0.9.4-bin-windows-x64-cuda13.3/audiocpp_server.exe': 'server-stub',
@@ -270,6 +270,11 @@ async function main() {
       extractTarGz(linuxRuntimeTar, only, { filter: (name) => name.endsWith('.json') })
       return existsSync(join(only, 'model_specs', 'index_tts2.json')) && !existsSync(join(only, 'audiocpp_server'))
     })(),
+  )
+  check(
+    'tar: reads the mode field from the header',
+    readTarEntries(makeTar({ 'a/b': 'x' }, '0000755\0'))[0]?.mode === 0o755,
+    String(readTarEntries(makeTar({ 'a/b': 'x' }, '0000755\0'))[0]?.mode),
   )
   check(
     'tar: preserves the executable bit on POSIX',

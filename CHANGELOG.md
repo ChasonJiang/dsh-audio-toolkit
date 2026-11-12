@@ -57,6 +57,12 @@ All notable changes to this project are documented here. The package version liv
 - Backend/platform normalization, macOS install gating, stale-backend fallback,
   install-part selection, tar executable bits and health-check deadlines are
   covered in the offline suite; CI now also runs on macOS.
+- Fixed the `makeTarGz` test helper dropping its `mode` argument (macOS/Linux CI
+  built a 0644 fixture and failed the executable-bit check) and added a
+  cross-platform assertion that the tar header's mode is parsed as `0o755`.
+- With the runtime assets present the local suite reports 85/38/28/12/44
+  (config/client/http/api/assets); CI without binaries/models reports
+  78/38/18/12/44, and the end-to-end smoke test passes 22/22.
 
 ## 0.8.0
 

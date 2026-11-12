@@ -102,8 +102,9 @@ npm run test:smoke  # end-to-end, needs the release, models and a GPU
 npm run docs:contract  # regenerate the tool contract in docs/GUIDE.zh.md
 ```
 
-The suite currently covers config 84, client 38, http 18, api 12 and assets 43 checks; CI runs
-it on Linux, Windows and macOS with Node 22 and 24, without binaries, models or a GPU
+With the runtime assets installed the suite covers config 85, client 38, http 28, api 12 and
+assets 44 checks. CI has no binaries or models, so the engine-backed cases skip and the
+reported counts are 78/38/18/12/44; CI runs on Linux, Windows and macOS with Node 22 and 24
 (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ## Security notes

@@ -414,10 +414,10 @@ plugin_manager(action="remove_bundle", target="dsh-audio-toolkit")
 
 ```powershell
 # 在仓库根目录执行；node 需 >= 22.19
-node .\test\config.mjs    # 配置/表单契约/原生工具/队列/平台后端/WAV 流式解码（84 项）
+node .\test\config.mjs    # 配置/表单契约/原生工具/队列/平台后端/WAV 流式解码（有资产 85 项，无资产 78 项）
 node .\test\client.mjs    # 浏览器半边无头渲染、macOS 后端与暂存值契约（38 项）
-node .\test\http.mjs      # 超时/取消/分块透传/MCP 协议与健康检查（18 项，受限沙箱会跳过 spawn 用例）
-node .\test\assets.mjs    # 资产发现/下载/解压/续传/镜像回退/安装选项（43 项，本地 HTTP，无需联网）
+node .\test\http.mjs      # 超时/取消/分块透传/MCP 协议与健康检查（有资产 28 项，无资产 18 项；受限沙箱会跳过 spawn 用例）
+node .\test\assets.mjs    # 资产发现/下载/解压/续传/镜像回退/安装选项（44 项，本地 HTTP，无需联网）
 node .\test\smoke.mjs --extended  # 独立 MCP 服务端到端，需 danger-full-access
 node .\scripts\tool_contract.mjs --check  # 校验 README 的工具契约与代码一致
 python .\scripts\check_scripts.py        # Python 辅助脚本自检（本地 HTTP，无需联网）
